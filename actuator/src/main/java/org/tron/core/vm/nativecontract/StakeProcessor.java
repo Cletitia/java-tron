@@ -18,6 +18,8 @@ import org.tron.core.vm.nativecontract.param.StakeParam;
 import org.tron.core.vm.repository.Repository;
 import org.tron.protos.Protocol;
 
+import static org.tron.core.actuator.ActuatorConstant.*;
+
 
 @Slf4j(topic = "Processor")
 public class StakeProcessor {
@@ -60,7 +62,7 @@ public class StakeProcessor {
     if (accountCapsule == null) {
       String readableOwnerAddress = StringUtil.createReadableString(ownerAddress);
       throw new ContractValidateException(
-          "Account[" + readableOwnerAddress + "] not exists");
+              ACCOUNT_EXCEPTION_STR + readableOwnerAddress + NOT_EXIST_STR);
     }
   }
 
@@ -102,14 +104,14 @@ public class StakeProcessor {
         if (repository.getAccount(witnessCandidate) == null) {
           String readableWitnessAddress = StringUtil.createReadableString(vote.getVoteAddress());
           throw new ContractValidateException(
-              ContractProcessorConstant.ACCOUNT_EXCEPTION_STR
-                  + readableWitnessAddress + ContractProcessorConstant.NOT_EXIST_STR);
+              ACCOUNT_EXCEPTION_STR
+                  + readableWitnessAddress + ActuatorConstant.NOT_EXIST_STR);
         }
         if (!witnessStore.has(witnessCandidate)) {
           String readableWitnessAddress = StringUtil.createReadableString(vote.getVoteAddress());
           throw new ContractValidateException(
-              ContractProcessorConstant.WITNESS_EXCEPTION_STR
-                  + readableWitnessAddress + ContractProcessorConstant.NOT_EXIST_STR);
+              WITNESS_EXCEPTION_STR
+                  + readableWitnessAddress + ActuatorConstant.NOT_EXIST_STR);
         }
         sum = vote.getVoteCount();
       }

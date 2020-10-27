@@ -11,6 +11,7 @@ import org.tron.core.vm.repository.Repository;
 
 import java.util.Objects;
 
+import static org.tron.core.actuator.ActuatorConstant.STORE_NOT_EXIST;
 import static org.tron.core.vm.nativecontract.ContractProcessorConstant.*;
 
 public class TokenIssueProcessor {
@@ -33,8 +34,10 @@ public class TokenIssueProcessor {
         accountCapsule.setInstance(accountCapsule.getInstance().toBuilder().build());
         // spend 1024trx for assetissue, send to blackhole address
         AccountCapsule bhAccountCapsule = repository.getAccount(repository.getBlackHoleAddress());
-        bhAccountCapsule.setBalance(Math.addExact(bhAccountCapsule.getBalance(), TOKEN_ISSUE_FEE));
-        accountCapsule.setBalance(Math.subtractExact(accountCapsule.getBalance(), TOKEN_ISSUE_FEE));
+        bhAccountCapsule.setBalance(Math.addExact(bhAccountCapsule.getBalance(),
+            repository.getDynamicPropertiesStore().getAssetIssueFee()));
+        accountCapsule.setBalance(Math.subtractExact(accountCapsule.getBalance(),
+            repository.getDynamicPropertiesStore().getAssetIssueFee()));
         repository.putAccountValue(tokenIssueParam.getOwnerAddress(), accountCapsule);
         repository.putAccountValue(bhAccountCapsule.getAddress().toByteArray(), bhAccountCapsule);
     }
