@@ -379,9 +379,6 @@ public class CommonParameter {
   public boolean solidityNodeHttpEnable = true;
   @Getter
   @Setter
-  public boolean nodeHttpStatisticsSRRewardEnable = false;
-  @Getter
-  @Setter
   public int maxTransactionPendingSize;
   @Getter
   @Setter
@@ -450,6 +447,11 @@ public class CommonParameter {
   @Getter
   @Setter
   public boolean isLiteFullNode = false;
+
+  @Getter
+  @Setter
+  @Parameter(names = {"--history-balance-lookup"})
+  public boolean historyBalanceLookup = false;
 
   private static double calcMaxTimeRatio() {
     //return max(2.0, min(5.0, 5 * 4.0 / max(Runtime.getRuntime().availableProcessors(), 1)));

@@ -181,6 +181,7 @@ public class Args extends CommonParameter {
     PARAMETER.allowTvmIstanbul = 0;
     PARAMETER.allowTvmStake = 0;
     PARAMETER.allowTvmAssetIssue = 0;
+    PARAMETER.historyBalanceLookup = false;
   }
 
   /**
@@ -280,11 +281,6 @@ public class Args extends CommonParameter {
 
     if (config.hasPath(Constant.NODE_HTTP_SOLIDITY_ENABLE)) {
       PARAMETER.solidityNodeHttpEnable = config.getBoolean(Constant.NODE_HTTP_SOLIDITY_ENABLE);
-    }
-
-    if (config.hasPath(Constant.NODE_HTTP_STATISTICS_SR_REWARD_SWITCH)) {
-      PARAMETER.nodeHttpStatisticsSRRewardEnable = config
-          .getBoolean(Constant.NODE_HTTP_STATISTICS_SR_REWARD_SWITCH);
     }
 
     if (config.hasPath(Constant.VM_MIN_TIME_RATIO)) {
@@ -733,6 +729,9 @@ public class Args extends CommonParameter {
             config.hasPath(Constant.NODE_OPEN_HISTORY_QUERY_WHEN_LITEFN)
                     && config.getBoolean(Constant.NODE_OPEN_HISTORY_QUERY_WHEN_LITEFN));
 
+    PARAMETER.historyBalanceLookup = config.hasPath(Constant.HISTORY_BALANCE_LOOKUP) && config
+        .getBoolean(Constant.HISTORY_BALANCE_LOOKUP);
+
     logConfig();
   }
 
@@ -1103,6 +1102,6 @@ public class Args extends CommonParameter {
         logger.warn(IGNORE_WRONG_WITNESS_ADDRESS_FORMAT);
       }
     }
-  } 
+  }
 }
 

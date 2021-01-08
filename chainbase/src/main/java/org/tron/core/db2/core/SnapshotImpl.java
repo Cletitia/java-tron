@@ -23,12 +23,13 @@ public class SnapshotImpl extends AbstractSnapshot<Key, Value> {
   protected Snapshot root;
 
   SnapshotImpl(Snapshot snapshot) {
-    root = snapshot.getRoot();
-    previous = snapshot;
-    snapshot.setNext(this);
     synchronized (this) {
       db = new HashDB(SnapshotImpl.class.getSimpleName());
     }
+
+    root = snapshot.getRoot();
+    previous = snapshot;
+    snapshot.setNext(this);
   }
 
   @Override
@@ -129,7 +130,7 @@ public class SnapshotImpl extends AbstractSnapshot<Key, Value> {
     while (next != null) {
       Streams.stream(((SnapshotImpl) next).db)
           .forEach(e -> all.put(WrappedByteArray.of(e.getKey().getBytes()),
-          e.getValue().getOperator()));
+              e.getValue().getOperator()));
       next = next.getNext();
     }
   }
