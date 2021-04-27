@@ -4,9 +4,11 @@ import static org.testng.Assert.fail;
 
 import com.google.protobuf.Any;
 import com.google.protobuf.ByteString;
+
 import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
+
 import lombok.extern.slf4j.Slf4j;
 import org.junit.AfterClass;
 import org.junit.Assert;
@@ -155,7 +157,7 @@ public class AccountPermissionUpdateActuatorTest {
   }
 
   private Any getContract(ByteString address, Permission owner, Permission witness,
-      List<Permission> activeList) {
+                          List<Permission> activeList) {
     AccountPermissionUpdateContract.Builder builder = AccountPermissionUpdateContract.newBuilder();
     builder.setOwnerAddress(address);
     if (owner != null) {
@@ -192,8 +194,8 @@ public class AccountPermissionUpdateActuatorTest {
   }
 
   private void processAndCheckInvalid(AccountPermissionUpdateActuator actuator,
-      TransactionResultCapsule ret,
-      String failMsg, String expectedMsg) {
+                                      TransactionResultCapsule ret,
+                                      String failMsg, String expectedMsg) {
     try {
       actuator.validate();
       actuator.execute(ret);
@@ -977,10 +979,11 @@ public class AccountPermissionUpdateActuatorTest {
           || contractType == ContractType.ClearABIContract
           || contractType == ContractType.UpdateBrokerageContract
           || contractType == ContractType.CrossContract
-          || contractType == ContractType.RegisterCrossContract
-          || contractType == ContractType.UpdateCrossContract
-          || contractType == ContractType.VoteCrossContract
-          ) {
+          || contractType == ContractType.RegisterCrossChainContract
+          || contractType == ContractType.UpdateCrossChainContract
+          || contractType == ContractType.VoteCrossChainContract
+          || contractType == ContractType.UnvoteCrossChainContract
+      ) {
         continue;
       }
       int id = contractType.getNumber();
@@ -1010,10 +1013,11 @@ public class AccountPermissionUpdateActuatorTest {
           || contractType == ContractType.ClearABIContract
           || contractType == ContractType.UpdateBrokerageContract
           || contractType == ContractType.CrossContract
-          || contractType == ContractType.RegisterCrossContract
-          || contractType == ContractType.UpdateCrossContract
-          || contractType == ContractType.VoteCrossContract
-          ) {
+          || contractType == ContractType.RegisterCrossChainContract
+          || contractType == ContractType.UpdateCrossChainContract
+          || contractType == ContractType.VoteCrossChainContract
+          || contractType == ContractType.UnvoteCrossChainContract
+      ) {
         continue;
       }
       int id = contractType.getNumber();
@@ -1036,9 +1040,11 @@ public class AccountPermissionUpdateActuatorTest {
       if (contractType == org.tron.protos.Protocol.Transaction.Contract.ContractType.UNRECOGNIZED
           || contractType == ContractType.UpdateBrokerageContract
           || contractType == ContractType.CrossContract
-          || contractType == ContractType.RegisterCrossContract
-          || contractType == ContractType.UpdateCrossContract
-          || contractType == ContractType.VoteCrossContract) {
+          || contractType == ContractType.RegisterCrossChainContract
+          || contractType == ContractType.UpdateCrossChainContract
+          || contractType == ContractType.VoteCrossChainContract
+          || contractType == ContractType.UnvoteCrossChainContract
+      ) {
         continue;
       }
       int id = contractType.getNumber();
@@ -1062,9 +1068,11 @@ public class AccountPermissionUpdateActuatorTest {
           || contractType == ContractType.AccountPermissionUpdateContract
           || contractType == ContractType.UpdateBrokerageContract
           || contractType == ContractType.CrossContract
-          || contractType == ContractType.RegisterCrossContract
-          || contractType == ContractType.UpdateCrossContract
-          || contractType == ContractType.VoteCrossContract) {
+          || contractType == ContractType.RegisterCrossChainContract
+          || contractType == ContractType.UpdateCrossChainContract
+          || contractType == ContractType.VoteCrossChainContract
+          || contractType == ContractType.UnvoteCrossChainContract
+      ) {
         continue;
       }
       int id = contractType.getNumber();

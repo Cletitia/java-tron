@@ -20,11 +20,15 @@ public class BlockHeaderRequestMessage extends TronMessage {
     this.blockHeaderRequestMessage = Protocol.BlockHeaderRequestMessage.parseFrom(packed);
   }
 
-  public BlockHeaderRequestMessage(String chainId, long localLatestHeight, long blockHeaderLength) {
+  public BlockHeaderRequestMessage(String chainId,
+                                   long localLatestHeight,
+                                   long blockHeaderLength,
+                                   long latestMaintenanceTime) {
     blockHeaderRequestMessage = Protocol.BlockHeaderRequestMessage.newBuilder()
         .setChainId(ByteString.copyFrom(ByteArray.fromHexString(chainId)))
         .setBlockHeight(localLatestHeight)
         .setLength(blockHeaderLength)
+        .setLatestMaintenanceTime(latestMaintenanceTime)
         .build();
     super.data = blockHeaderRequestMessage.toByteArray();
     super.type = MessageTypes.HEADER_REQUEST_MESSAGE.asByte();
@@ -38,8 +42,12 @@ public class BlockHeaderRequestMessage extends TronMessage {
     return blockHeaderRequestMessage.getLength();
   }
 
-  public byte[] getChainId() {
-    return blockHeaderRequestMessage.getChainId().toByteArray();
+  public ByteString getChainId() {
+    return blockHeaderRequestMessage.getChainId();
+  }
+
+  public long getLatestMaintenanceTime() {
+    return blockHeaderRequestMessage.getLatestMaintenanceTime();
   }
 
   @Override

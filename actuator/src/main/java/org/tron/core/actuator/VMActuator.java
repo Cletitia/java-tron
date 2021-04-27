@@ -211,6 +211,8 @@ public class VMActuator implements Actuator2 {
           result.getLogInfoList().clear();
           result.resetFutureRefund();
           result.rejectInternalTransactions();
+          result.getDeleteVotes().clear();
+          result.getDeleteDelegation().clear();
 
           if (result.getException() != null) {
             if (!(result.getException() instanceof TransferException)) {
@@ -330,10 +332,10 @@ public class VMActuator implements Actuator2 {
     // create vm to constructor smart contract
     try {
       long feeLimit = trx.getRawData().getFeeLimit();
-      if (feeLimit < 0 || feeLimit > VMConfig.MAX_FEE_LIMIT) {
+      if (feeLimit < 0 || feeLimit > repository.getDynamicPropertiesStore().getMaxFeeLimit()) {
         logger.info("invalid feeLimit {}", feeLimit);
         throw new ContractValidateException(
-            "feeLimit must be >= 0 and <= " + VMConfig.MAX_FEE_LIMIT);
+            "feeLimit must be >= 0 and <= " + repository.getDynamicPropertiesStore().getMaxFeeLimit());
       }
       AccountCapsule creator = this.repository
           .getAccount(newSmartContract.getOriginAddress().toByteArray());
@@ -457,10 +459,10 @@ public class VMActuator implements Actuator2 {
     if (isNotEmpty(code)) {
 
       long feeLimit = trx.getRawData().getFeeLimit();
-      if (feeLimit < 0 || feeLimit > VMConfig.MAX_FEE_LIMIT) {
+      if (feeLimit < 0 || feeLimit > repository.getDynamicPropertiesStore().getMaxFeeLimit()) {
         logger.info("invalid feeLimit {}", feeLimit);
         throw new ContractValidateException(
-            "feeLimit must be >= 0 and <= " + VMConfig.MAX_FEE_LIMIT);
+            "feeLimit must be >= 0 and <= " + repository.getDynamicPropertiesStore().getMaxFeeLimit());
       }
       AccountCapsule caller = repository.getAccount(callerAddress);
       long energyLimit;

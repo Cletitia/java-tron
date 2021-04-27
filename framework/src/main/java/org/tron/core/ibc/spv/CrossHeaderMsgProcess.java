@@ -17,6 +17,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import javax.annotation.PostConstruct;
+import javax.annotation.PreDestroy;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.collections4.CollectionUtils;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -25,6 +26,7 @@ import org.tron.common.overlay.server.SyncPool;
 import org.tron.common.parameter.CommonParameter;
 import org.tron.common.utils.ByteArray;
 import org.tron.core.ChainBaseManager;
+import org.tron.core.capsule.BlockCapsule;
 import org.tron.core.capsule.BlockHeaderCapsule;
 import org.tron.core.capsule.PbftSignCapsule;
 import org.tron.core.db.Manager;
@@ -48,6 +50,8 @@ public class CrossHeaderMsgProcess {
 
   public static final int SYNC_NUMBER = 200;
   private static final int MAX_HEADER_NUMBER = 10000;
+
+  private static boolean go = true;
 
   private static Set<PeerConnection> syncFailPeerSet = new HashSet<>();
 
@@ -83,8 +87,33 @@ public class CrossHeaderMsgProcess {
 
   @PostConstruct
   public void init() {
+    processHeaderService = Executors.newFixedThreadPool(20,
+        r -> new Thread(r, "process-cross-header"));
+    sendService = Executors.newFixedThreadPool(20,
+        r -> new Thread(r, "sync-cross-header"));
+    sendRequestExecutor = Executors.newSingleThreadExecutor(
+        new ThreadFactoryBuilder().setNameFormat("sendRequestExecutor").build());
+    processHeaderExecutor = Executors.newSingleThreadExecutor(
+        new ThreadFactoryBuilder().setNameFormat("processHeaderExecutor").build());
     sendRequestExecutor.submit(this::sendRequest);
     processHeaderExecutor.submit(this::processBlockHeader);
+  }
+
+  @PreDestroy
+  public void destroy() {
+    go = false;
+    if (sendService != null) {
+      sendService.shutdown();
+    }
+    if (processHeaderService != null) {
+      processHeaderService.shutdown();
+    }
+    if (sendRequestExecutor != null) {
+      sendRequestExecutor.shutdown();
+    }
+    if (processHeaderExecutor != null) {
+      processHeaderExecutor.shutdown();
+    }
   }
 
   public void handleCrossUpdatedNotice(PeerConnection peer, TronMessage msg)
@@ -97,12 +126,16 @@ public class CrossHeaderMsgProcess {
       return;
     }
 
+    if (!chainBaseManager.chainIsSelected(chainId)) {
+      return;
+    }
+
     logger.debug("HandleUpdatedNotice, peer:{}, notice num:{}, chainId:{}",
         peer, noticeMessage.getCurrentBlockHeight(), chainIdStr);
     long localLatestHeight = chainBaseManager.getCommonDataBase()
         .getLatestHeaderBlockNum(chainIdStr);
     if (noticeMessage.getCurrentBlockHeight() - localLatestHeight <= 1
-        && noticeMessage.getCurrentBlockHeight() - localLatestHeight >= 0) {//
+        && noticeMessage.getCurrentBlockHeight() - localLatestHeight >= 0) {
       syncDisabledMap.put(chainIdStr, true);
       sendHeaderNumCache.invalidate(chainIdStr);
       headerManager.pushBlockHeader(noticeMessage.getSignedBlockHeader());
@@ -110,7 +143,8 @@ public class CrossHeaderMsgProcess {
           noticeMessage.getSignedBlockHeader().getBlockHeader().getRawData().getNumber());
       missBlockHeaderMap.put(chainIdStr,
           noticeMessage.getSignedBlockHeader().getBlockHeader().getRawData().getNumber());
-    } else {//sync
+    } else {
+      //sync
       syncDisabledMap.put(chainIdStr, false);
     }
     //notice local node
@@ -124,16 +158,20 @@ public class CrossHeaderMsgProcess {
   public void handleRequest(PeerConnection peer, TronMessage msg)
       throws ItemNotFoundException, BadItemException {
     BlockHeaderRequestMessage requestMessage = (BlockHeaderRequestMessage) msg;
-    byte[] chainId = requestMessage.getChainId();
+    byte[] chainId = requestMessage.getChainId().toByteArray();
     String chainIdString = ByteArray.toHexString(chainId);
     long blockHeight = requestMessage.getBlockHeight();
+    long latestMaintenanceTime = requestMessage.getLatestMaintenanceTime();
     long currentBlockheight = chainBaseManager.getCommonDataBase().getLatestPbftBlockNum();
-
-    logger.info("handleRequest, peer:{}, chainId:{}, request num:{}, current:{}, "
-        , peer, chainIdString, blockHeight, currentBlockheight);
+    if (!chainBaseManager.chainIsSelected(requestMessage.getChainId())) {
+      return;
+    }
+    logger.info("handleRequest, peer:{}, chainId:{}, request num:{}, current:{}, ",
+        peer, chainIdString, blockHeight, currentBlockheight);
     List<SignedBlockHeader> blockHeaders = new ArrayList<>();
     if (currentBlockheight > blockHeight) {
       long height = blockHeight + 1;
+      boolean isMaintenanceTimeUpdated = false;
       for (int i = 1; i <= SYNC_NUMBER && height < currentBlockheight; i++) {
         height = blockHeight + i;
         BlockHeaderCapsule blockHeaderCapsule = new BlockHeaderCapsule(
@@ -145,25 +183,35 @@ public class CrossHeaderMsgProcess {
         if (pbftSignCapsule != null) {
           builder.addAllSrsSignature(pbftSignCapsule.getInstance().getSignatureList());
         }
-        //
-        setSrList(builder, chainIdString, blockHeaderCapsule.getTimeStamp());
+        // set sr list
+        isMaintenanceTimeUpdated = setSrList(builder, chainIdString,
+                blockHeaderCapsule.getTimeStamp(), latestMaintenanceTime,
+                isMaintenanceTimeUpdated);
         blockHeaders.add(builder.build());
       }
-
-    } else {//todo
-
+      latestMaintenanceTimeMap.put(chainIdString, 0L);
+    } else {
+      //todo
     }
-    BlockHeaderInventoryMesasge inventoryMesasge =
-        new BlockHeaderInventoryMesasge(chainIdString, currentBlockheight, blockHeaders);
-    peer.sendMessage(inventoryMesasge);
+
+    String genesisBlockIdStr = ByteArray.toHexString(
+            chainBaseManager.getGenesisBlockId().getByteString().toByteArray());
+    BlockHeaderInventoryMesasge inventoryMessage =
+        new BlockHeaderInventoryMesasge(genesisBlockIdStr, currentBlockheight, blockHeaders);
+    peer.sendMessage(inventoryMessage);
   }
 
   public void handleInventory(PeerConnection peer, TronMessage msg) {
     BlockHeaderInventoryMesasge blockHeaderInventoryMesasge = (BlockHeaderInventoryMesasge) msg;
     List<SignedBlockHeader> blockHeaders = blockHeaderInventoryMesasge.getBlockHeaders();
-    String chainIdStr = ByteArray.toHexString(blockHeaderInventoryMesasge.getChainId());
+    String chainIdStr = ByteArray
+        .toHexString(blockHeaderInventoryMesasge.getChainId().toByteArray());
     Long sendHeight = sendHeaderNumCache.getIfPresent(chainIdStr);
-    if (CollectionUtils.isEmpty(blockHeaders)) {//todo
+    if (!chainBaseManager.chainIsSelected(blockHeaderInventoryMesasge.getChainId())) {
+      return;
+    }
+    if (CollectionUtils.isEmpty(blockHeaders)) {
+      //todo
       syncFailPeerSet.add(peer);
       sendHeaderNumCache.invalidate(chainIdStr);
       return;
@@ -189,26 +237,29 @@ public class CrossHeaderMsgProcess {
     logger.info("next sync header num:{}", syncBlockHeaderMap.get(chainIdStr));
   }
 
-  protected void setSrList(Builder builder, String chainIdString, long blockTime) {
+  protected boolean setSrList(Builder builder, String chainIdString,
+                              long blockTime, long latestMaintenanceTime,
+                              boolean isMaintenanceTimeUpdated) {
     //
     long round = blockTime / CommonParameter.getInstance().getMaintenanceTimeInterval();
     long maintenanceTime = (round + 1) * CommonParameter.getInstance().getMaintenanceTimeInterval();
-    Long latestMaintenanceTime = latestMaintenanceTimeMap.get(chainIdString);
-    latestMaintenanceTime = latestMaintenanceTime == null ? 0 : latestMaintenanceTime;
+    // Long latestMaintenanceTimeTmp = latestMaintenanceTimeMap.get(chainIdString);
+    // latestMaintenanceTimeTmp = latestMaintenanceTimeTmp == null ? 0 : latestMaintenanceTimeTmp;
     logger.debug("set sr list, maintenanceTime:{}, latestMaintenanceTime:{}", maintenanceTime,
         latestMaintenanceTime);
-    if (maintenanceTime > latestMaintenanceTime) {
+    if (maintenanceTime > latestMaintenanceTime && !isMaintenanceTimeUpdated) {
       PbftSignCapsule srSignCapsule = chainBaseManager.getPbftSignDataStore()
           .getSrSignData(maintenanceTime);
       if (srSignCapsule != null) {
-        latestMaintenanceTimeMap.put(chainIdString, maintenanceTime);
+        // latestMaintenanceTimeMap.put(chainIdString, maintenanceTime);
         builder.setSrList(srSignCapsule.getInstance());
       }
     }
+    return isMaintenanceTimeUpdated;
   }
 
   private void sendRequest() {
-    while (true) {
+    while (go) {
       try {
         if (syncDisabledMap.isEmpty()) {
           Thread.sleep(50);
@@ -262,11 +313,16 @@ public class CrossHeaderMsgProcess {
       }
 
       PeerConnection peer = selectPeer(peerConnectionList);
+      String genesisBlockId = ByteArray.toHexString(
+              chainBaseManager.getGenesisBlockId().getByteString().toByteArray());
       if (peer == null) {
         syncFailPeerSet.clear();
         peer = selectPeer(peerConnectionList);
+        genesisBlockId = chainId;
       }
-      peer.sendMessage(new BlockHeaderRequestMessage(chainId, syncHeaderNum, SYNC_NUMBER));
+      long nextMain = chainBaseManager.getCommonDataBase().getCrossNextMaintenanceTime(chainId);
+      peer.sendMessage(new BlockHeaderRequestMessage(
+              genesisBlockId, syncHeaderNum, SYNC_NUMBER, nextMain));
       logger.info("begin send request to:{}, header num:{}", chainId, syncHeaderNum);
     }
 
@@ -281,7 +337,7 @@ public class CrossHeaderMsgProcess {
   }
 
   private void processBlockHeader() {
-    while (true) {
+    while (go) {
       chainHeaderCache.keySet().forEach(chainId -> {
         if (chainHeaderCache.get(chainId).size() > 0
             && startProcessHeaderMap.get(chainId) == null) {

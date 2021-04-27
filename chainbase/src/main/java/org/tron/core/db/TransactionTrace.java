@@ -30,11 +30,7 @@ import org.tron.core.exception.ContractExeException;
 import org.tron.core.exception.ContractValidateException;
 import org.tron.core.exception.ReceiptCheckErrException;
 import org.tron.core.exception.VMIllegalException;
-import org.tron.core.store.AccountStore;
-import org.tron.core.store.CodeStore;
-import org.tron.core.store.ContractStore;
-import org.tron.core.store.DynamicPropertiesStore;
-import org.tron.core.store.StoreFactory;
+import org.tron.core.store.*;
 import org.tron.protos.Protocol.Transaction;
 import org.tron.protos.Protocol.Transaction.Contract.ContractType;
 import org.tron.protos.Protocol.Transaction.Result.contractResult;
@@ -68,11 +64,18 @@ public class TransactionTrace {
 
   private ForkController forkController;
 
+  private VotesStore votesStore;
+
+  private DelegationStore delegationStore;
+
   @Getter
   private TransactionContext transactionContext;
   @Getter
   @Setter
   private TimeResultType timeResultType = TimeResultType.NORMAL;
+  @Getter
+  @Setter
+  private boolean netFeeForBandwidth = true;
 
   public TransactionTrace(TransactionCapsule trx, StoreFactory storeFactory,
       Runtime runtime) {
@@ -100,6 +103,9 @@ public class TransactionTrace {
     this.runtime = runtime;
     this.forkController = new ForkController();
     forkController.init(storeFactory.getChainBaseManager());
+
+    this.votesStore = storeFactory.getChainBaseManager().getVotesStore();
+    this.delegationStore = storeFactory.getChainBaseManager().getDelegationStore();
   }
 
   public TransactionCapsule getTrx() {
@@ -159,6 +165,12 @@ public class TransactionTrace {
     receipt.setNetFee(netFee);
   }
 
+  public void setNetBillForCreateNewAccount(long netUsage, long netFee) {
+    receipt.setNetUsage(netUsage);
+    receipt.setNetFee(netFee);
+    setNetFeeForBandwidth(false);
+  }
+
   public void addNetBill(long netFee) {
     receipt.addNetFee(netFee);
   }
@@ -191,6 +203,12 @@ public class TransactionTrace {
       for (DataWord contract : transactionContext.getProgramResult().getDeleteAccounts()) {
         deleteContract(convertToTronAddress((contract.getLast20Bytes())));
       }
+      for (DataWord address : transactionContext.getProgramResult().getDeleteVotes()) {
+        votesStore.delete(convertToTronAddress((address.getLast20Bytes())));
+      }
+      for (DataWord address : transactionContext.getProgramResult().getDeleteDelegation()) {
+        deleteDelegationByAddress(convertToTronAddress((address.getLast20Bytes())));
+      }
     }
   }
 
@@ -213,7 +231,12 @@ public class TransactionTrace {
         ContractCapsule contractCapsule =
             contractStore.get(callContract.getContractAddress().toByteArray());
 
-        callerAccount = callContract.getOwnerAddress().toByteArray();
+        if (trx.getCallerAddress() != null && trx.getCallerAddress().length > 0) {
+          // this transaction is a cross-chain smartcontract
+          callerAccount = trx.getCallerAddress();
+        } else {
+          callerAccount = callContract.getOwnerAddress().toByteArray();
+        }
         originAccount = contractCapsule.getOriginAddress();
         percent = Math
             .max(Constant.ONE_HUNDRED - contractCapsule.getConsumeUserResourcePercent(), 0);
@@ -298,6 +321,12 @@ public class TransactionTrace {
       address = newAddress;
     }
     return address;
+  }
+
+  public void deleteDelegationByAddress(byte[] address){
+    delegationStore.delete(address); //begin Cycle
+    delegationStore.delete(("lastWithdraw-" + Hex.toHexString(address)).getBytes()); //last Withdraw cycle
+    delegationStore.delete(("end-" + Hex.toHexString(address)).getBytes()); //end cycle
   }
 
 

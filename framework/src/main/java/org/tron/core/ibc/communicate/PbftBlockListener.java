@@ -34,6 +34,7 @@ import org.tron.protos.Protocol.Transaction;
 import org.tron.protos.Protocol.Transaction.Contract;
 import org.tron.protos.Protocol.Transaction.Contract.ContractType;
 import org.tron.protos.contract.BalanceContract.CrossContract;
+import org.tron.protos.contract.BalanceContract.CrossContract.CrossDataType;
 
 @Slf4j(topic = "pbft-block-listener")
 @Service
@@ -181,16 +182,19 @@ public class PbftBlockListener implements EventListener<PbftBlockCommitEvent> {
       if (contract.getType() != ContractType.CrossContract) {
         return false;
       }
+      CrossContract crossContract = contract.getParameter().unpack(CrossContract.class);
       if (transactionCapsule.isSource()) {
-        CrossContract crossContract = contract.getParameter().unpack(CrossContract.class);
-        sendTxMap.put(txHash, new SendTxEntry(txHash, System.currentTimeMillis(),
-            getTimeOutHeight(crossContract, (long) (timeOut * 1.5)), crossContract.getToChainId()));
+        if (crossContract.getType() == CrossDataType.TOKEN) {
+          sendTxMap.put(txHash, new SendTxEntry(txHash, System.currentTimeMillis(),
+              getTimeOutHeight(crossContract, (long) (timeOut * 1.5)),
+              crossContract.getToChainId()));
+        }
         waitingSendTx.get(blockNum).add(txHash);
         return true;
       }
       CrossStore crossStore = chainBaseManager.getCrossStore();
       CrossMessage crossMessage = crossStore.getReceiveCrossMsgUnEx(txHash);
-      if (crossMessage != null) {
+      if (crossMessage != null && crossContract.getType() == CrossDataType.TOKEN) {
         callBackTx.get(blockNum).add(txHash);
         return true;
       } else {
@@ -237,7 +241,8 @@ public class PbftBlockListener implements EventListener<PbftBlockCommitEvent> {
     }
   }
 
-  //todo:if not exist tochainid then the height is 0,then the timeout never execute,so we will do something!
+  // todo: if not exist tochainid then the height is 0,
+  // then the timeout never execute, so we will do something!
   public boolean validTimeOut(long timeOutHeight, ByteString toChainId, Transaction sourceTx) {
     Sha256Hash sourceHash = Sha256Hash.of(true, sourceTx.getRawData().toByteArray());
     TransactionStore transactionStore = chainBaseManager.getTransactionStore();

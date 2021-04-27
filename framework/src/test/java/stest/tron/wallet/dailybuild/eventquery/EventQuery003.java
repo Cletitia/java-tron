@@ -124,17 +124,20 @@ public class EventQuery003 {
             "triggerUintEvent()", "#", false,
             0, maxFeeLimit, event001Address, event001Key, blockingStubFull);
         logger.info(txid);
-        sendTransaction = false;
+        if (PublicMethed.getTransactionInfoById(txid,blockingStubFull).get()
+            .getResultValue() == 0) {
+          sendTransaction = false;
+        }
       }
 
       if (message != null) {
         transactionMessage = new String(message);
-        if (!transactionMessage.equals("contractEventTrigger")) {
+        if (!transactionMessage.equals("contractEventTrigger") && !transactionMessage.isEmpty()) {
           break;
         }
       }
     }
-
+    Assert.assertTrue(retryTimes > 0);
     logger.info("transaction message:" + transactionMessage);
     JSONObject blockObject = JSONObject.parseObject(transactionMessage);
     Assert.assertTrue(blockObject.containsKey("timeStamp"));
@@ -166,7 +169,7 @@ public class EventQuery003 {
     req.setReceiveTimeOut(10000);
     String transactionMessage = "";
     Boolean sendTransaction = true;
-    Integer retryTimes = 20;
+    Integer retryTimes = 40;
 
     while (retryTimes-- > 0) {
       byte[] message = req.recv();
@@ -175,19 +178,22 @@ public class EventQuery003 {
             "triggerUintEvent()", "#", false,
             0, maxFeeLimit, event001Address, event001Key, blockingStubFull);
         logger.info(txid);
-        sendTransaction = false;
+        if (PublicMethed.getTransactionInfoById(txid,blockingStubFull).get()
+            .getResultValue() == 0) {
+          sendTransaction = false;
+        }
       }
 
       if (message != null) {
 
         transactionMessage = new String(message);
         logger.info("transaction message:" + transactionMessage);
-        if (!transactionMessage.equals("solidityEventTrigger")) {
+        if (!transactionMessage.equals("solidityEventTrigger") && !transactionMessage.isEmpty()) {
           break;
         }
       }
     }
-
+    Assert.assertTrue(retryTimes > 0);
     logger.info("transaction message:" + transactionMessage);
     JSONObject blockObject = JSONObject.parseObject(transactionMessage);
     Assert.assertTrue(blockObject.containsKey("timeStamp"));

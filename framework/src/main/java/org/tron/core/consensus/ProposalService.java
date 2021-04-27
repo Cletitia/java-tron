@@ -9,7 +9,7 @@ import org.tron.core.utils.ProposalUtil;
 
 /**
  * Notice:
- *
+ * <p>
  * if you want to add a proposal,you just should add a enum ProposalType and add the valid in the
  * validator method, add the process in the process method
  */
@@ -198,10 +198,22 @@ public class ProposalService extends ProposalUtil {
           manager.getDynamicPropertiesStore().saveAllowPBFT(entry.getValue());
           break;
         }
+        case ALLOW_TVM_ISTANBUL: {
+          manager.getDynamicPropertiesStore().saveAllowTvmIstanbul(entry.getValue());
+          break;
+        }
         case ALLOW_SHIELDED_TRC20_TRANSACTION: {
           manager.getDynamicPropertiesStore().saveAllowShieldedTRC20Transaction(entry.getValue());
           break;
         }
+        //case ALLOW_TVM_STAKE: {
+        //  manager.getDynamicPropertiesStore().saveAllowTvmStake(entry.getValue());
+        //  break;
+        //}
+        //case ALLOW_TVM_ASSET_ISSUE: {
+        //  manager.getDynamicPropertiesStore().saveAllowTvmAssetIssue(entry.getValue());
+        //  break;
+        //}
         case ALLOW_MARKET_TRANSACTION: {
           if (manager.getDynamicPropertiesStore().getAllowMarketTransaction() == 0) {
             manager.getDynamicPropertiesStore().saveAllowMarketTransaction(entry.getValue());
@@ -218,6 +230,18 @@ public class ProposalService extends ProposalUtil {
           manager.getDynamicPropertiesStore().saveMarketCancelFee(entry.getValue());
           break;
         }
+        case MAX_FEE_LIMIT: {
+          manager.getDynamicPropertiesStore().saveMaxFeeLimit(entry.getValue());
+          break;
+        }
+        case ALLOW_TRANSACTION_FEE_POOL: {
+          manager.getDynamicPropertiesStore().saveAllowTransactionFeePool(entry.getValue());
+          break;
+        }
+        case ALLOW_BLACKHOLE_OPTIMIZATION: {
+          manager.getDynamicPropertiesStore().saveAllowBlackHoleOptimization(entry.getValue());
+          break;
+        }
 
         case CROSS_CHAIN: {
           manager.getDynamicPropertiesStore().saveCrossChain(entry.getValue());
@@ -225,6 +249,15 @@ public class ProposalService extends ProposalUtil {
           manager.getDynamicPropertiesStore().addSystemContractAndSetPermission(55);
           manager.getDynamicPropertiesStore().addSystemContractAndSetPermission(56);
           manager.getDynamicPropertiesStore().addSystemContractAndSetPermission(57);
+          manager.getDynamicPropertiesStore().addSystemContractAndSetPermission(58);
+          break;
+        }
+        case AUCTION_CONFIG: {
+          manager.getDynamicPropertiesStore().saveAuctionConfig(entry.getValue());
+          break;
+        }
+        case MIN_AUCTION_VOTE_COUNT: {
+          manager.getDynamicPropertiesStore().saveMinAuctionVoteCount(entry.getValue());
           break;
         }
         default:

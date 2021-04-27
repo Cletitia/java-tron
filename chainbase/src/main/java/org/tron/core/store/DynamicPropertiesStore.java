@@ -1,15 +1,21 @@
 package org.tron.core.store;
 
+import com.google.common.collect.Streams;
 import com.google.protobuf.ByteString;
 import java.util.Arrays;
+import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
+import java.util.stream.Collectors;
 import java.util.stream.IntStream;
+import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import org.joda.time.DateTime;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.tron.common.parameter.CommonParameter;
+import org.tron.common.utils.AuctionConfigParser;
 import org.tron.common.utils.ByteArray;
 import org.tron.common.utils.Sha256Hash;
 import org.tron.core.capsule.BlockCapsule;
@@ -116,6 +122,7 @@ public class DynamicPropertiesStore extends TronStoreWithRevoking<BytesCapsule> 
   //Used only for multi sign, once，value is {0,1}
   private static final byte[] ALLOW_MULTI_SIGN = "ALLOW_MULTI_SIGN".getBytes();
   //token id,Incremental，The initial value is 1000000
+  @Getter
   private static final byte[] TOKEN_ID_NUM = "TOKEN_ID_NUM".getBytes();
   //Used only for token updates, once，value is {0,1}
   private static final byte[] TOKEN_UPDATE_DONE = "TOKEN_UPDATE_DONE".getBytes();
@@ -126,6 +133,9 @@ public class DynamicPropertiesStore extends TronStoreWithRevoking<BytesCapsule> 
   private static final byte[] ALLOW_SHIELDED_TRC20_TRANSACTION =
       "ALLOW_SHIELDED_TRC20_TRANSACTION"
           .getBytes();
+  private static final byte[] ALLOW_TVM_ISTANBUL = "ALLOW_TVM_ISTANBUL".getBytes();
+  private static final byte[] ALLOW_TVM_STAKE = "ALLOW_TVM_STAKE".getBytes();
+  private static final byte[] ALLOW_TVM_ASSET_ISSUE = "ALLOW_TVM_ASSET_ISSUE".getBytes();
   private static final byte[] ALLOW_TVM_CONSTANTINOPLE = "ALLOW_TVM_CONSTANTINOPLE".getBytes();
   private static final byte[] ALLOW_TVM_SOLIDITY_059 = "ALLOW_TVM_SOLIDITY_059".getBytes();
   private static final byte[] FORBID_TRANSFER_TO_CONTRACT = "FORBID_TRANSFER_TO_CONTRACT"
@@ -151,6 +161,17 @@ public class DynamicPropertiesStore extends TronStoreWithRevoking<BytesCapsule> 
   private static final byte[] MARKET_SELL_FEE = "MARKET_SELL_FEE".getBytes();
   private static final byte[] MARKET_CANCEL_FEE = "MARKET_CANCEL_FEE".getBytes();
   private static final byte[] MARKET_QUANTITY_LIMIT = "MARKET_QUANTITY_LIMIT".getBytes();
+
+  private static final byte[] ALLOW_TRANSACTION_FEE_POOL = "ALLOW_TRANSACTION_FEE_POOL".getBytes();
+  private static final byte[] TRANSACTION_FEE_POOL = "TRANSACTION_FEE_POOL".getBytes();
+
+  private static final byte[] MAX_FEE_LIMIT = "MAX_FEE_LIMIT".getBytes();
+  private static final byte[] BURN_TRX_AMOUNT = "BURN_TRX_AMOUNT".getBytes();
+  private static final byte[] ALLOW_BLACKHOLE_OPTIMIZATION = "ALLOW_BLACKHOLE_OPTIMIZATION"
+      .getBytes();
+
+  private static final String AUCTION_CONFIG_ROUND = "AUCTION_CONFIG_ROUND";
+  private static final byte[] MIN_AUCTION_VOTE_COUNT = "MIN_AUCTION_VOTE_COUNT".getBytes();
 
   @Autowired
   private DynamicPropertiesStore(@Value("properties") String dbName) {
@@ -472,6 +493,18 @@ public class DynamicPropertiesStore extends TronStoreWithRevoking<BytesCapsule> 
     }
 
     try {
+      this.getAllowTransactionFeePool();
+    } catch (IllegalArgumentException e) {
+      this.saveAllowTransactionFeePool(CommonParameter.getInstance().getAllowTransactionFeePool());
+    }
+
+    try {
+      this.getTransactionFeePool();
+    } catch (IllegalArgumentException e) {
+      this.saveTransactionFeePool(0L);
+    }
+
+    try {
       this.getTotalTransactionCost();
     } catch (IllegalArgumentException e) {
       this.saveTotalTransactionCost(0L);
@@ -604,6 +637,27 @@ public class DynamicPropertiesStore extends TronStoreWithRevoking<BytesCapsule> 
     }
 
     try {
+      this.getAllowTvmIstanbul();
+    } catch (IllegalArgumentException e) {
+      this.saveAllowTvmIstanbul(
+          CommonParameter.getInstance().getAllowTvmIstanbul());
+    }
+
+    try {
+      this.getAllowTvmStake();
+    } catch (IllegalArgumentException e) {
+      this.saveAllowTvmStake(
+          CommonParameter.getInstance().getAllowTvmStake());
+    }
+
+    try {
+      this.getAllowTvmAssetIssue();
+    } catch (IllegalArgumentException e) {
+      this.saveAllowTvmAssetIssue(
+          CommonParameter.getInstance().getAllowTvmAssetIssue());
+    }
+
+    try {
       this.getBlockFilledSlots();
     } catch (IllegalArgumentException e) {
       int[] blockFilledSlots = new int[getBlockFilledSlotsNumber()];
@@ -683,6 +737,25 @@ public class DynamicPropertiesStore extends TronStoreWithRevoking<BytesCapsule> 
     }
 
     try {
+      this.getMaxFeeLimit();
+    } catch (IllegalArgumentException e) {
+      this.saveMaxFeeLimit(1_000_000_000L);
+    }
+
+    try {
+      this.getBurnTrxAmount();
+    } catch (IllegalArgumentException e) {
+      this.saveBurnTrx(0L);
+    }
+
+    try {
+      this.getAllowBlackHoleOptimization();
+    } catch (IllegalArgumentException e) {
+      this.saveAllowBlackHoleOptimization(
+          CommonParameter.getInstance().getAllowBlackHoleOptimization());
+    }
+
+    try {
       this.getCrossChain();
     } catch (IllegalArgumentException e) {
       this.saveCrossChain(CommonParameter.getInstance().getCrossChain());
@@ -698,6 +771,18 @@ public class DynamicPropertiesStore extends TronStoreWithRevoking<BytesCapsule> 
       this.getBurnedForRegisterCross();
     } catch (IllegalArgumentException e) {
       this.saveBurnedForRegisterCross();
+    }
+
+    try {
+      this.listAuctionConfigs();
+    } catch (IllegalArgumentException e) {
+      this.saveAuctionConfig(81617162101023L);
+    }
+
+    try {
+      this.getMinAuctionVoteCount();
+    } catch (IllegalArgumentException e) {
+      this.saveMinAuctionVoteCount(0L);
     }
 
   }
@@ -1378,6 +1463,45 @@ public class DynamicPropertiesStore extends TronStoreWithRevoking<BytesCapsule> 
             () -> new IllegalArgumentException("not found MARKET_QUANTITY_LIMIT"));
   }
 
+
+  public boolean supportTransactionFeePool() {
+    return getAllowTransactionFeePool() == 1L;
+  }
+
+  public void saveAllowTransactionFeePool(long value) {
+    this.put(ALLOW_TRANSACTION_FEE_POOL,
+        new BytesCapsule(ByteArray.fromLong(value)));
+  }
+
+  public long getAllowTransactionFeePool() {
+    return Optional.ofNullable(getUnchecked(ALLOW_TRANSACTION_FEE_POOL))
+        .map(BytesCapsule::getData)
+        .map(ByteArray::toLong)
+        .orElseThrow(
+            () -> new IllegalArgumentException("not found ALLOW_TRANSACTION_FEE_POOL"));
+  }
+
+  public void addTransactionFeePool(long amount) {
+    if (amount <= 0) {
+      return;
+    }
+    amount += getTransactionFeePool();
+    saveTransactionFeePool(amount);
+  }
+
+  public void saveTransactionFeePool(long value) {
+    this.put(TRANSACTION_FEE_POOL,
+        new BytesCapsule(ByteArray.fromLong(value)));
+  }
+
+  public long getTransactionFeePool() {
+    return Optional.ofNullable(getUnchecked(TRANSACTION_FEE_POOL))
+        .map(BytesCapsule::getData)
+        .map(ByteArray::toLong)
+        .orElseThrow(
+            () -> new IllegalArgumentException("not found TRANSACTION_FEE_POOL"));
+  }
+
   public void saveTotalTransactionCost(long value) {
     this.put(TOTAL_TRANSACTION_COST,
         new BytesCapsule(ByteArray.fromLong(value)));
@@ -1674,6 +1798,7 @@ public class DynamicPropertiesStore extends TronStoreWithRevoking<BytesCapsule> 
     return getAllowCreationOfContracts() == 1L;
   }
 
+
   public void saveAllowShieldedTransaction(long allowShieldedTransaction) {
     this.put(DynamicPropertiesStore.ALLOW_SHIELDED_TRANSACTION,
         new BytesCapsule(ByteArray.fromLong(allowShieldedTransaction)));
@@ -1695,6 +1820,48 @@ public class DynamicPropertiesStore extends TronStoreWithRevoking<BytesCapsule> 
   public long getAllowShieldedTRC20Transaction() {
     String msg = "not found ALLOW_SHIELDED_TRC20_TRANSACTION";
     return Optional.ofNullable(getUnchecked(ALLOW_SHIELDED_TRC20_TRANSACTION))
+        .map(BytesCapsule::getData)
+        .map(ByteArray::toLong)
+        .orElseThrow(
+            () -> new IllegalArgumentException(msg));
+  }
+
+  public void saveAllowTvmIstanbul(long allowTVMIstanbul) {
+    this.put(DynamicPropertiesStore.ALLOW_TVM_ISTANBUL,
+        new BytesCapsule(ByteArray.fromLong(allowTVMIstanbul)));
+  }
+
+  public long getAllowTvmIstanbul() {
+    String msg = "not found ALLOW_TVM_ISTANBUL";
+    return Optional.ofNullable(getUnchecked(ALLOW_TVM_ISTANBUL))
+        .map(BytesCapsule::getData)
+        .map(ByteArray::toLong)
+        .orElseThrow(
+            () -> new IllegalArgumentException(msg));
+  }
+
+  public void saveAllowTvmStake(long allowTvmStake) {
+    this.put(DynamicPropertiesStore.ALLOW_TVM_STAKE,
+        new BytesCapsule(ByteArray.fromLong(allowTvmStake)));
+  }
+
+  public void saveAllowTvmAssetIssue(long allowTvmAssetIssue) {
+    this.put(DynamicPropertiesStore.ALLOW_TVM_ASSET_ISSUE,
+        new BytesCapsule(ByteArray.fromLong(allowTvmAssetIssue)));
+  }
+
+  public long getAllowTvmStake() {
+    String msg = "not found ALLOW_TVM_STAKE";
+    return Optional.ofNullable(getUnchecked(ALLOW_TVM_STAKE))
+        .map(BytesCapsule::getData)
+        .map(ByteArray::toLong)
+        .orElseThrow(
+            () -> new IllegalArgumentException(msg));
+  }
+
+  public long getAllowTvmAssetIssue() {
+    String msg = "not found ALLOW_TVM_ASSETISSUE";
+    return Optional.ofNullable(getUnchecked(ALLOW_TVM_ASSET_ISSUE))
         .map(BytesCapsule::getData)
         .map(ByteArray::toLong)
         .orElseThrow(
@@ -1974,18 +2141,6 @@ public class DynamicPropertiesStore extends TronStoreWithRevoking<BytesCapsule> 
             () -> new IllegalArgumentException("not found ALLOW_ACCOUNT_STATE_ROOT"));
   }
 
-  public void saveCurrentCycleTiimeStamp(long timeStamp) {
-    this.put(CURRENT_CYCLE_TIMESTAMP, new BytesCapsule(ByteArray.fromLong(timeStamp)));
-
-  }
-
-  public long getCurrentCycleTimeStamp() {
-    return Optional.ofNullable(getUnchecked(CURRENT_CYCLE_TIMESTAMP))
-        .map(BytesCapsule::getData)
-        .map(ByteArray::toLong)
-        .orElse(0L);
-  }
-
   public boolean allowAccountStateRoot() {
     return getAllowAccountStateRoot() == 1;
   }
@@ -2032,6 +2187,54 @@ public class DynamicPropertiesStore extends TronStoreWithRevoking<BytesCapsule> 
     return getAllowPBFT() == 1;
   }
 
+  public long getMaxFeeLimit() {
+    return Optional.ofNullable(getUnchecked(MAX_FEE_LIMIT))
+        .map(BytesCapsule::getData)
+        .map(ByteArray::toLong)
+        .orElseThrow(
+            () -> new IllegalArgumentException("not found MAX_FEE_LIMIT"));
+  }
+
+  public void saveMaxFeeLimit(long maxFeeLimit) {
+    this.put(MAX_FEE_LIMIT,
+        new BytesCapsule(ByteArray.fromLong(maxFeeLimit)));
+  }
+
+  public long getBurnTrxAmount() {
+    return Optional.ofNullable(getUnchecked(BURN_TRX_AMOUNT))
+        .map(BytesCapsule::getData)
+        .map(ByteArray::toLong)
+        .orElseThrow(() -> new IllegalArgumentException("not found BURN_TRX_AMOUNT"));
+  }
+
+  public void burnTrx(long amount) {
+    if (amount <= 0) {
+      return;
+    }
+    amount += getBurnTrxAmount();
+    saveBurnTrx(amount);
+  }
+
+  private void saveBurnTrx(long amount) {
+    this.put(BURN_TRX_AMOUNT, new BytesCapsule(ByteArray.fromLong(amount)));
+  }
+
+  public boolean supportBlackHoleOptimization() {
+    return getAllowBlackHoleOptimization() == 1L;
+  }
+
+  public void saveAllowBlackHoleOptimization(long value) {
+    this.put(ALLOW_BLACKHOLE_OPTIMIZATION, new BytesCapsule(ByteArray.fromLong(value)));
+  }
+
+  public long getAllowBlackHoleOptimization() {
+    return Optional.ofNullable(getUnchecked(ALLOW_BLACKHOLE_OPTIMIZATION))
+        .map(BytesCapsule::getData)
+        .map(ByteArray::toLong)
+        .orElseThrow(
+            () -> new IllegalArgumentException("not found ALLOW_BLACKHOLE_OPTIMIZATION"));
+  }
+
   public void saveCrossChain(long number) {
     this.put(CROSS_CHAIN,
         new BytesCapsule(ByteArray.fromLong(number)));
@@ -2048,6 +2251,34 @@ public class DynamicPropertiesStore extends TronStoreWithRevoking<BytesCapsule> 
     return getCrossChain() == 1;
   }
 
+  public void saveAuctionConfig(long value) {
+    int round =AuctionConfigParser.getAuctionRound(value);
+    //AUCTION_CONFIG_ROUND_1 : 1
+    String key = AUCTION_CONFIG_ROUND+"_"+round;
+    this.put(key.getBytes(),
+        new BytesCapsule(ByteArray.fromLong(value)));
+  }
+
+  public List<Long> listAuctionConfigs() {
+    String startStr = "AUCTION_CONFIG_";
+    return  Streams.stream(iterator())
+            .filter(entry -> Objects.requireNonNull(ByteArray.toStr(entry.getKey())).startsWith(startStr))
+            .map(entry -> entry.getValue().getData())
+            .map(entry -> ByteArray.toLong(entry))
+            .collect(Collectors.toList());
+  }
+
+  public void saveMinAuctionVoteCount(long value) {
+    this.put(MIN_AUCTION_VOTE_COUNT, new BytesCapsule(ByteArray.fromLong(value)));
+  }
+
+  public long getMinAuctionVoteCount() {
+    return Optional.ofNullable(getUnchecked(MIN_AUCTION_VOTE_COUNT))
+            .map(BytesCapsule::getData)
+            .map(ByteArray::toLong)
+            .orElseThrow(() -> new IllegalArgumentException("not found MIN_AUCTION_VOTE_COUNT"));
+  }
+
   public long getSrListCurrentCycle() {
     return Optional.ofNullable(getUnchecked(SR_LIST_CURRENT_CYCLE))
         .map(BytesCapsule::getData)
@@ -2061,9 +2292,9 @@ public class DynamicPropertiesStore extends TronStoreWithRevoking<BytesCapsule> 
 
   public long getBurnedForRegisterCross() {
     return Optional.ofNullable(getUnchecked(BURNED_FOR_REGISTER_CROSS))
-            .map(BytesCapsule::getData)
-            .map(ByteArray::toLong)
-            .orElseThrow(() -> new IllegalArgumentException("not found BURNED_FOR_REGISTER_CROSS"));
+        .map(BytesCapsule::getData)
+        .map(ByteArray::toLong)
+        .orElseThrow(() -> new IllegalArgumentException("not found BURNED_FOR_REGISTER_CROSS"));
   }
 
   public void saveBurnedForRegisterCross() {

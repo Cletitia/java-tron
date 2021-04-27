@@ -17,6 +17,7 @@ message SmartContract {
         Function = 2;
         Event = 3;
         Fallback = 4;
+        Receive = 5;
       }
       message Param {
         bool indexed = 1;
@@ -86,4 +87,9 @@ message UpdateEnergyLimitContract {
   bytes owner_address = 1;
   bytes contract_address = 2;
   int64 origin_energy_limit = 3;
+}
+
+message SmartContractDataWrapper {
+  SmartContract smart_contract = 1;
+  bytes runtimecode = 2;
 }

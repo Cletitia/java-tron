@@ -2,11 +2,14 @@ package org.tron.consensus;
 
 import com.google.protobuf.ByteString;
 import java.util.List;
+import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
+import org.tron.core.ChainBaseManager;
 import org.tron.core.capsule.AccountCapsule;
 import org.tron.core.capsule.WitnessCapsule;
+import org.tron.core.db.CrossRevokingStore;
 import org.tron.core.store.AccountStore;
 import org.tron.core.store.DelegationStore;
 import org.tron.core.store.DynamicPropertiesStore;
@@ -36,6 +39,13 @@ public class ConsensusDelegate {
   @Autowired
   private VotesStore votesStore;
 
+  @Autowired
+  private CrossRevokingStore crossRevokingStore;
+
+  @Getter
+  @Autowired
+  private ChainBaseManager chainBaseManager;
+
   public DynamicPropertiesStore getDynamicPropertiesStore() {
     return dynamicPropertiesStore;
   }
@@ -46,6 +56,10 @@ public class ConsensusDelegate {
 
   public VotesStore getVotesStore() {
     return votesStore;
+  }
+
+  public CrossRevokingStore getCrossRevokingStore() {
+    return crossRevokingStore;
   }
 
   public int calculateFilledSlotsCount() {

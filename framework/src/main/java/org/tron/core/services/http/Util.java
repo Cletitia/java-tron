@@ -60,6 +60,7 @@ public class Util {
   public static final String VALUE = "value";
   public static final String CONTRACT_TYPE = "contractType";
   public static final String EXTRA_DATA = "extra_data";
+  public static final String PARAMETER = "parameter";
 
   public static String printTransactionFee(String transactionFee) {
     JSONObject jsonObject = new JSONObject();
@@ -86,25 +87,6 @@ public class Util {
 
   public static String printBlock(Block block, boolean selfType) {
     return printBlockToJSON(block, selfType).toJSONString();
-  }
-
-  public static JSONObject printMapToJSON(HashMap<String, Long> map) {
-    JSONObject jsonObject = new JSONObject();
-    for (HashMap.Entry<String, Long> entry : map.entrySet()) {
-      jsonObject.put(entry.getKey(), entry.getValue());
-    }
-    return jsonObject;
-  }
-
-  public static JSONObject printRewardMapToJSON(HashMap<String, Long> rewardMap) {
-    JSONObject jsonObject = new JSONObject();
-    long totalReward = 0;
-    for (HashMap.Entry<String, Long> entry : rewardMap.entrySet()) {
-      jsonObject.put(entry.getKey(), entry.getValue());
-      totalReward += entry.getValue();
-    }
-    jsonObject.put("totalReward", totalReward);
-    return jsonObject;
   }
 
   public static JSONObject printBlockToJSON(Block block, boolean selfType) {
@@ -239,7 +221,7 @@ public class Util {
         parameter.put(VALUE, contractJson);
         parameter.put("type_url", contract.getParameterOrBuilder().getTypeUrl());
         JSONObject jsonContract = new JSONObject();
-        jsonContract.put("parameter", parameter);
+        jsonContract.put(PARAMETER, parameter);
         jsonContract.put("type", contract.getType());
         if (contract.getPermissionId() > 0) {
           jsonContract.put(PERMISSION_ID, contract.getPermissionId());
@@ -271,7 +253,7 @@ public class Util {
     for (int i = 0; i < rawContractArray.size(); i++) {
       try {
         JSONObject contract = rawContractArray.getJSONObject(i);
-        JSONObject parameter = contract.getJSONObject("parameter");
+        JSONObject parameter = contract.getJSONObject(PARAMETER);
         String contractType = contract.getString("type");
         Any any = null;
         Class clazz = TransactionFactory.getContract(ContractType.valueOf(contractType));
@@ -286,7 +268,7 @@ public class Util {
         if (any != null) {
           String value = ByteArray.toHexString(any.getValue().toByteArray());
           parameter.put(VALUE, value);
-          contract.put("parameter", parameter);
+          contract.put(PARAMETER, parameter);
           contracts.add(contract);
         }
       } catch (ParseException e) {

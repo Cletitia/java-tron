@@ -135,6 +135,8 @@ public class FullNodeHttpApiService implements Service {
   @Autowired
   private GetContractServlet getContractServlet;
   @Autowired
+  private GetContractInfoServlet getContractInfoServlet;
+  @Autowired
   private ClearABIServlet clearABIServlet;
   @Autowired
   private ProposalCreateServlet proposalCreateServlet;
@@ -226,6 +228,8 @@ public class FullNodeHttpApiService implements Service {
   @Autowired
   private BroadcastHexServlet broadcastHexServlet;
   @Autowired
+  private GetBurnTrxServlet getBurnTrxServlet;
+  @Autowired
   private GetBrokerageServlet getBrokerageServlet;
   @Autowired
   private GetRewardServlet getRewardServlet;
@@ -252,18 +256,6 @@ public class FullNodeHttpApiService implements Service {
   @Autowired
   private MetricsServlet metricsServlet;
   @Autowired
-  private GetAccountRewardByCycleServlet getAccountRewardByCycleServlet;
-  @Autowired
-  private GetSRProfitByCycleServlet getSRProfitByCycleServlet;
-  @Autowired
-  private GetSRDividendsByCycleServlet getSRDividendsByCycleServlet;
-  @Autowired
-  private GetAccountLastUnwithdrawRewardServlet getAccountLastUnwithdrawRewardServlet;
-  @Autowired
-  private GetCurrentCycleService getCurrentCycleServlet;
-  @Autowired
-  private GetNowSRAnnualizedRateOfReturnServlet getNowSRAnnualizedRateOfReturnServlet;
-  @Autowired
   private MarketSellAssetServlet marketSellAssetServlet;
   @Autowired
   private MarketCancelOrderServlet marketCancelOrderServlet;
@@ -281,7 +273,34 @@ public class FullNodeHttpApiService implements Service {
   private CheckCrossTransactionCommitServlet checkCrossTransactionCommitServlet;
 
   @Autowired
+  private GetAccountBalanceServlet getAccountBalanceServlet;
+
+  @Autowired
+  private GetBlockBalanceServlet getBlockBalanceServlet;
+
+  @Autowired
   private LiteFnQueryHttpFilter liteFnQueryHttpFilter;
+
+  @Autowired
+  private RegisterCrossChainServlet registerCrossChainServlet;
+
+  @Autowired
+  private UpdateCrossChainServlet updateCrossChainServlet;
+
+  @Autowired
+  private GetRegisterCrossChainListServlet getRegisterCrossChainListServlet;
+
+  @Autowired
+  private VoteCrossChainServlet voteCrossChainServlet;
+
+  @Autowired
+  private UnvoteCrossChainServlet unvoteCrossChainServlet;
+
+  @Autowired
+  private GetCrossChainVoteDetailListServlet getCrossChainVoteDetailListServlet;
+
+  @Autowired
+  private GetCrossChainVoteSummaryListServlet getCrossChainVoteSummaryListServlet;
 
   private static String getParamsFile(String fileName) {
     InputStream in = Thread.currentThread().getContextClassLoader()
@@ -409,6 +428,7 @@ public class FullNodeHttpApiService implements Service {
       context.addServlet(new ServletHolder(triggerConstantContractServlet),
           "/wallet/triggerconstantcontract");
       context.addServlet(new ServletHolder(getContractServlet), "/wallet/getcontract");
+      context.addServlet(new ServletHolder(getContractInfoServlet), "/wallet/getcontractinfo");
       context.addServlet(new ServletHolder(clearABIServlet), "/wallet/clearabi");
       context.addServlet(new ServletHolder(proposalCreateServlet), "/wallet/proposalcreate");
       context.addServlet(new ServletHolder(proposalApproveServlet), "/wallet/proposalapprove");
@@ -497,21 +517,6 @@ public class FullNodeHttpApiService implements Service {
       context.addServlet(new ServletHolder(updateBrokerageServlet), "/wallet/updateBrokerage");
       context.addServlet(new ServletHolder(createCommonTransactionServlet),
           "/wallet/createCommonTransaction");
-      if (Args.getInstance().isNodeHttpStatisticsSRRewardEnable()) {
-        context.addServlet(new ServletHolder(getAccountRewardByCycleServlet),
-            "/wallet/getAccountRewardByCycleServlet");
-        context.addServlet(new ServletHolder(getSRProfitByCycleServlet),
-            "/wallet/getSRProfitByCycleServlet");
-        context.addServlet(new ServletHolder(getSRDividendsByCycleServlet),
-            "/wallet/getSRDividendsByCycleServlet");
-        context.addServlet(new ServletHolder(getNowSRAnnualizedRateOfReturnServlet),
-            "/wallet/getNowSRAnnualizedRateOfReturnServlet");
-        context.addServlet(new ServletHolder(getAccountLastUnwithdrawRewardServlet),
-            "/wallet/getAccountLastUnwithdrawRewardServlet");
-        context.addServlet(new ServletHolder(getCurrentCycleServlet),
-            "/wallet/getCurrentCycleServlet");
-      }
-
       context.addServlet(new ServletHolder(getTransactionInfoByBlockNumServlet),
           "/wallet/gettransactioninfobyblocknum");
       context.addServlet(new ServletHolder(listNodesServlet), "/net/listnodes");
@@ -534,6 +539,24 @@ public class FullNodeHttpApiService implements Service {
       context.addServlet(new ServletHolder(getMarketPairListServlet),
           "/wallet/getmarketpairlist");
 
+      context.addServlet(new ServletHolder(getAccountBalanceServlet),
+          "/wallet/getaccountbalance");
+      context.addServlet(new ServletHolder(getBlockBalanceServlet),
+          "/wallet/getblockbalance");
+      context.addServlet(new ServletHolder(getBurnTrxServlet), "/wallet/getburntrx");
+
+      context.addServlet(new ServletHolder(registerCrossChainServlet),
+          "/wallet/registercrosschain");
+      context.addServlet(new ServletHolder(updateCrossChainServlet), "/wallet/updatecrosschain");
+      context.addServlet(new ServletHolder(getRegisterCrossChainListServlet),
+              "/wallet/getregistercrosschainlist");
+      context.addServlet(new ServletHolder(voteCrossChainServlet), "/wallet/votecrosschain");
+      context.addServlet(new ServletHolder(unvoteCrossChainServlet), "/wallet/unvotecrosschain");
+      context.addServlet(new ServletHolder(getCrossChainVoteDetailListServlet),
+              "/wallet/getcrosschainvotedetaillist");
+      context.addServlet(new ServletHolder(getCrossChainVoteSummaryListServlet),
+              "/wallet/getcrosschainvotesummarylist");
+
       int maxHttpConnectNumber = Args.getInstance().getMaxHttpConnectNumber();
       if (maxHttpConnectNumber > 0) {
         server.addBean(new ConnectionLimit(maxHttpConnectNumber, server));
@@ -542,7 +565,7 @@ public class FullNodeHttpApiService implements Service {
       // filters the specified APIs
       // when node is lite fullnode and openHistoryQueryWhenLiteFN is false
       context.addFilter(new FilterHolder(liteFnQueryHttpFilter), "/*",
-              EnumSet.allOf(DispatcherType.class));
+          EnumSet.allOf(DispatcherType.class));
 
       // filter
       ServletHandler handler = new ServletHandler();

@@ -27,7 +27,8 @@ import lombok.Setter;
  */
 public class VMConfig {
 
-  public static final int MAX_FEE_LIMIT = 1_000_000_000; //1000 TRX
+  //1000 TRX
+  //public static final int MAX_FEE_LIMIT = 1_000_000_000;
 
   private static boolean vmTraceCompressed = false;
 
@@ -43,6 +44,12 @@ public class VMConfig {
   private static boolean ALLOW_TVM_SOLIDITY_059 = false;
 
   private static boolean ALLOW_SHIELDED_TRC20_TRANSACTION = false;
+
+  private static boolean ALLOW_TVM_ISTANBUL = false;
+
+  private static boolean ALLOW_TVM_STAKE = false;
+
+  private static boolean ALLOW_TVM_ASSET_ISSUE = false;
 
   private VMConfig() {
   }
@@ -83,6 +90,18 @@ public class VMConfig {
     ALLOW_SHIELDED_TRC20_TRANSACTION = allow == 1;
   }
 
+  public static void initAllowTvmIstanbul(long allow) {
+    ALLOW_TVM_ISTANBUL = allow == 1;
+  }
+
+  public static void initAllowTvmStake(long allow) {
+    ALLOW_TVM_STAKE = allow == 1;
+  }
+
+  public static void initAllowTvmAssetIssue(long allow) {
+    ALLOW_TVM_ASSET_ISSUE = allow == 1;
+  }
+
   public static boolean getEnergyLimitHardFork() {
     return ENERGY_LIMIT_HARD_FORK;
   }
@@ -105,6 +124,16 @@ public class VMConfig {
 
   public static boolean allowShieldedTRC20Transaction() {
     return ALLOW_SHIELDED_TRC20_TRANSACTION;
+  }
+
+  public static boolean allowTvmIstanbul() {return ALLOW_TVM_ISTANBUL; }
+
+  public static boolean allowTvmStake() {
+    return ALLOW_TVM_STAKE;
+  }
+
+  public static boolean allowTvmAssetIssue() {
+    return ALLOW_TVM_ASSET_ISSUE;
   }
 
   private static class SystemPropertiesInstance {

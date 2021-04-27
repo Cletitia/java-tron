@@ -1,6 +1,8 @@
 package org.tron.core.db;
 
 import static org.tron.common.utils.Commons.adjustBalance;
+import static org.tron.protos.Protocol.Transaction.Contract.ContractType.TransferContract;
+import static org.tron.protos.Protocol.Transaction.Result.contractResult.SUCCESS;
 
 import com.google.common.cache.Cache;
 import com.google.common.cache.CacheBuilder;
@@ -70,6 +72,7 @@ import org.tron.core.ChainBaseManager;
 import org.tron.core.Constant;
 import org.tron.core.actuator.ActuatorCreator;
 import org.tron.core.capsule.AccountCapsule;
+import org.tron.core.capsule.BlockBalanceTraceCapsule;
 import org.tron.core.capsule.BlockCapsule;
 import org.tron.core.capsule.BlockCapsule.BlockId;
 import org.tron.core.capsule.BytesCapsule;
@@ -99,6 +102,7 @@ import org.tron.core.exception.BlockNotInMainForkException;
 import org.tron.core.exception.ContractExeException;
 import org.tron.core.exception.ContractSizeNotEqualToOneException;
 import org.tron.core.exception.ContractValidateException;
+import org.tron.core.exception.CrossContractConstructException;
 import org.tron.core.exception.DupTransactionException;
 import org.tron.core.exception.ItemNotFoundException;
 import org.tron.core.exception.NonCommonBlockException;
@@ -117,6 +121,7 @@ import org.tron.core.ibc.communicate.CommunicateService;
 import org.tron.core.ibc.communicate.PbftBlockListener;
 import org.tron.core.metrics.MetricsKey;
 import org.tron.core.metrics.MetricsUtil;
+import org.tron.core.service.MortgageService;
 import org.tron.core.store.AccountIdIndexStore;
 import org.tron.core.store.AccountIndexStore;
 import org.tron.core.store.AccountStore;
@@ -137,18 +142,24 @@ import org.tron.core.store.StorageRowStore;
 import org.tron.core.store.StoreFactory;
 import org.tron.core.store.TransactionHistoryStore;
 import org.tron.core.store.TransactionRetStore;
-import org.tron.core.store.TreeBlockIndexStore;
 import org.tron.core.store.VotesStore;
 import org.tron.core.store.WitnessScheduleStore;
 import org.tron.core.store.WitnessStore;
 import org.tron.core.utils.TransactionRegister;
+import org.tron.protos.Protocol;
 import org.tron.protos.Protocol.AccountType;
 import org.tron.protos.Protocol.CrossMessage;
 import org.tron.protos.Protocol.CrossMessage.Type;
 import org.tron.protos.Protocol.Transaction;
 import org.tron.protos.Protocol.Transaction.Contract;
 import org.tron.protos.Protocol.Transaction.Contract.ContractType;
+import org.tron.protos.Protocol.Transaction.Result;
+import org.tron.protos.Protocol.Transaction.raw;
 import org.tron.protos.Protocol.TransactionInfo;
+import org.tron.protos.contract.BalanceContract;
+import org.tron.protos.contract.BalanceContract.CrossContract;
+import org.tron.protos.contract.BalanceContract.CrossContract.CrossDataType;
+import org.tron.protos.contract.SmartContractOuterClass.TriggerSmartContract;
 
 
 @Slf4j(topic = "DB")
@@ -157,6 +168,8 @@ public class Manager {
 
   private static final int SHIELDED_TRANS_IN_BLOCK_COUNTS = 1;
   private static final String SAVE_BLOCK = "save block: ";
+  private static final int SLEEP_TIME_OUT = 50;
+  private static final int TX_ID_CACHE_SIZE = 100_000;
   private final int shieldedTransInPendingMaxCounts =
       Args.getInstance().getShieldedTransInPendingMaxCounts();
   @Getter
@@ -166,12 +179,6 @@ public class Manager {
   @Autowired(required = false)
   @Getter
   private TransactionCache transactionCache;
-  @Autowired
-  private RecentBlockStore recentBlockStore;
-  @Autowired
-  private CommonDataBase commonDataBase;
-  @Autowired
-  private TransactionHistoryStore transactionHistoryStore;
   // for network
   @Autowired
   private KhaosDatabase khaosDb;
@@ -200,7 +207,7 @@ public class Manager {
   private BlockingQueue<TransactionCapsule> pushTransactionQueue = new LinkedBlockingQueue<>();
   @Getter
   private Cache<Sha256Hash, Boolean> transactionIdCache = CacheBuilder
-      .newBuilder().maximumSize(100_000).recordStats().build();
+      .newBuilder().maximumSize(TX_ID_CACHE_SIZE).recordStats().build();
   @Autowired
   private AccountStateCallBack accountStateCallBack;
   @Autowired
@@ -208,7 +215,7 @@ public class Manager {
   private Set<String> ownerAddressSet = new HashSet<>();
   @Getter
   @Autowired
-  private DelegationService delegationService;
+  private MortgageService mortgageService;
   @Autowired
   private Consensus consensus;
   @Autowired
@@ -246,7 +253,7 @@ public class Manager {
             if (tx != null) {
               this.rePush(tx);
             } else {
-              TimeUnit.MILLISECONDS.sleep(50L);
+              TimeUnit.MILLISECONDS.sleep(SLEEP_TIME_OUT);
             }
           } catch (Throwable ex) {
             logger.error("unknown exception happened in rePush loop", ex);
@@ -485,7 +492,7 @@ public class Manager {
   @PostConstruct
   public void init() {
     Message.setDynamicPropertiesStore(this.getDynamicPropertiesStore());
-    delegationService
+    mortgageService
         .initStore(chainBaseManager.getWitnessStore(), chainBaseManager.getDelegationStore(),
             chainBaseManager.getDynamicPropertiesStore(), chainBaseManager.getAccountStore());
     accountStateCallBack.setChainBaseManager(chainBaseManager);
@@ -501,7 +508,7 @@ public class Manager {
     this.triggerCapsuleQueue = new LinkedBlockingQueue<>();
     this.crossTxQueue = new LinkedBlockingDeque<>();
     chainBaseManager.setMerkleContainer(getMerkleContainer());
-    chainBaseManager.setDelegationService(delegationService);
+    chainBaseManager.setMortgageService(mortgageService);
 
     this.initGenesis();
     try {
@@ -550,6 +557,9 @@ public class Manager {
     //initActuatorCreator
     ActuatorCreator.init();
     TransactionRegister.registerActuator();
+
+    // init cross chain white list
+    initCrossChainWhiteList();
   }
 
   /**
@@ -586,6 +596,7 @@ public class Manager {
         this.initWitness();
         this.khaosDb.start(genesisBlock);
         this.updateRecentBlock(genesisBlock);
+        initAccountHistoryBalance();
       }
     }
   }
@@ -611,6 +622,37 @@ public class Manager {
               chainBaseManager.getAccountIdIndexStore().put(accountCapsule);
               chainBaseManager.getAccountIndexStore().put(accountCapsule);
             });
+  }
+
+  public void initAccountHistoryBalance() {
+    BlockCapsule genesis = chainBaseManager.getGenesisBlock();
+    BlockBalanceTraceCapsule genesisBlockBalanceTraceCapsule =
+        new BlockBalanceTraceCapsule(genesis);
+    List<TransactionCapsule> transactionCapsules = genesis.getTransactions();
+    for (TransactionCapsule transactionCapsule : transactionCapsules) {
+      BalanceContract.TransferContract transferContract = transactionCapsule.getTransferContract();
+      BalanceContract.TransactionBalanceTrace.Operation operation =
+          BalanceContract.TransactionBalanceTrace.Operation.newBuilder()
+              .setOperationIdentifier(0)
+              .setAddress(transferContract.getToAddress())
+              .setAmount(transferContract.getAmount())
+              .build();
+
+      BalanceContract.TransactionBalanceTrace transactionBalanceTrace =
+          BalanceContract.TransactionBalanceTrace.newBuilder()
+              .setTransactionIdentifier(transactionCapsule.getTransactionId().getByteString())
+              .setType(TransferContract.name())
+              .setStatus(SUCCESS.name())
+              .addOperation(operation)
+              .build();
+      genesisBlockBalanceTraceCapsule.addTransactionBalanceTrace(transactionBalanceTrace);
+
+      chainBaseManager.getAccountTraceStore().recordBalanceWithBlock(
+          transferContract.getToAddress().toByteArray(), 0, transferContract.getAmount());
+    }
+
+    chainBaseManager.getBalanceTraceStore()
+        .put(Longs.toByteArray(0), genesisBlockBalanceTraceCapsule);
   }
 
   /**
@@ -760,11 +802,17 @@ public class Manager {
   }
 
   private boolean containsTransaction(TransactionCapsule transactionCapsule) {
+    return containsTransaction(transactionCapsule.getTransactionId().getBytes());
+  }
+
+
+  private boolean containsTransaction(byte[] transactionId) {
     if (transactionCache != null) {
-      return transactionCache.has(transactionCapsule.getTransactionId().getBytes());
+      return transactionCache.has(transactionId);
     }
 
-    return getTransactionStore().has(transactionCapsule.getTransactionId().getBytes());
+    return chainBaseManager.getTransactionStore()
+        .has(transactionId);
   }
 
   /**
@@ -799,7 +847,7 @@ public class Manager {
         }
 
         try (ISession tmpSession = revokingStore.buildSession()) {
-          processTransaction(trx, null);
+          preProcessTransaction(trx, null);
           pendingTransactions.add(trx);
           tmpSession.merge();
         }
@@ -825,8 +873,12 @@ public class Manager {
         try {
           if (accountCapsule != null) {
             adjustBalance(getAccountStore(), accountCapsule, -fee);
-            adjustBalance(getAccountStore(), this.getAccountStore()
-                .getBlackhole().createDbKey(), +fee);
+
+            if (getDynamicPropertiesStore().supportBlackHoleOptimization()) {
+              getDynamicPropertiesStore().burnTrx(fee);
+            } else {
+              adjustBalance(getAccountStore(), this.getAccountStore().getBlackhole(), +fee);
+            }
           }
         } catch (BalanceInsufficientException e) {
           throw new AccountResourceInsufficientException(
@@ -935,7 +987,7 @@ public class Manager {
       while (!getDynamicPropertiesStore()
           .getLatestBlockHeaderHash()
           .equals(binaryTree.getValue().peekLast().getParentHash())) {
-        reorgContractTrigger();
+        reOrgContractTrigger();
         eraseBlock();
       }
     }
@@ -1056,7 +1108,17 @@ public class Manager {
             "shielded transaction count > " + SHIELDED_TRANS_IN_BLOCK_COUNTS);
       }
 
-      BlockCapsule newBlock = this.khaosDb.push(block);
+      BlockCapsule newBlock;
+      try {
+        newBlock = this.khaosDb.push(block);
+      } catch (UnLinkedBlockException e) {
+        logger.error(
+            "latestBlockHeaderHash:{}, latestBlockHeaderNumber:{}, latestSolidifiedBlockNum:{}",
+            getDynamicPropertiesStore().getLatestBlockHeaderHash(),
+            getDynamicPropertiesStore().getLatestBlockHeaderNumber(),
+            getDynamicPropertiesStore().getLatestSolidifiedBlockNum());
+        throw e;
+      }
 
       // DB don't need lower block
       if (getDynamicPropertiesStore().getLatestBlockHeaderHash() == null) {
@@ -1227,13 +1289,18 @@ public class Manager {
   /**
    * Process transaction.
    */
-  public TransactionInfo processTransaction(final TransactionCapsule trxCap, BlockCapsule blockCap)
+  public TransactionInfo processTransaction(
+          final TransactionCapsule trxCap, BlockCapsule blockCap, boolean save)
       throws ValidateSignatureException, ContractValidateException, ContractExeException,
       AccountResourceInsufficientException, TransactionExpirationException,
       TooBigTransactionException, TooBigTransactionResultException,
       DupTransactionException, TaposException, ReceiptCheckErrException, VMIllegalException {
     if (trxCap == null) {
       return null;
+    }
+
+    if (Objects.nonNull(blockCap)) {
+      chainBaseManager.getBalanceTraceStore().initCurrentTransactionBalanceTrace(trxCap);
     }
 
     if (!isCrossChainTx(trxCap)) {
@@ -1257,7 +1324,7 @@ public class Manager {
         new RuntimeImpl());
     trxCap.setTrxTrace(trace);
 
-    if (!isCrossChainTx(trxCap)) {
+    if (trxCap.isSource()) {
       consumeBandwidth(trxCap, trace);
       consumeMultiSignFee(trxCap, trace);
     }
@@ -1287,7 +1354,9 @@ public class Manager {
     if (Objects.nonNull(blockCap) && getDynamicPropertiesStore().supportVM()) {
       trxCap.setResult(trace.getTransactionContext());
     }
-    getTransactionStore().put(trxCap.getTransactionId().getBytes(), trxCap);
+    if (save) {
+      chainBaseManager.getTransactionStore().put(trxCap.getTransactionId().getBytes(), trxCap);
+    }
 
     Optional.ofNullable(transactionCache)
         .ifPresent(t -> t.put(trxCap.getTransactionId().getBytes(),
@@ -1303,12 +1372,19 @@ public class Manager {
       ownerAddressSet.add(ByteArray.toHexString(TransactionCapsule.getOwner(contract)));
     }
 
+    if (Objects.nonNull(blockCap)) {
+      chainBaseManager.getBalanceTraceStore()
+          .updateCurrentTransactionStatus(
+              trace.getRuntimeResult().getResultCode().name());
+      chainBaseManager.getBalanceTraceStore().resetCurrentTransactionTrace();
+    }
+
     return transactionInfo.getInstance();
   }
 
   private boolean isCrossChainTx(TransactionCapsule trxCap) {
-    ContractType contractType = trxCap.getInstance().getRawData().getContract(0).getType();
-    return contractType == ContractType.CrossContract && !trxCap.isSource();
+    //ContractType contractType = trxCap.getInstance().getRawData().getContract(0).getType();
+    return !trxCap.isSource();
   }
 
   /**
@@ -1363,19 +1439,27 @@ public class Manager {
         fromPending = true;
         trx = iterator.next();
       } else if (crossTxQueue.size() > 0) {
-        //process cross tx
-        crossMessage = crossTxQueue.poll();
-        //todo:a->o->b
-        if (crossMessage.getType() == Type.TIME_OUT || crossMessage.getType() == Type.ACK
-            || (crossMessage.getType() == Type.DATA
-            && crossMessage.getTimeOutBlockHeight() > chainBaseManager.getHeadBlockNum())) {
-          trx = new TransactionCapsule(crossMessage.getTransaction());
-          trx.setSource(false);
-          trx.setType(crossMessage.getType());
-        } else {
-          logger.warn("{} cross tx time out, timeOutHeight:{}, now block height:{}",
-              crossMessage.getType(), crossMessage.getTimeOutBlockHeight(),
-              chainBaseManager.getHeadBlockNum());
+        try {
+          //process cross tx
+          crossMessage = crossTxQueue.poll();
+          CrossContract crossContract = crossMessage.getTransaction().getRawData().getContract(0)
+              .getParameter().unpack(CrossContract.class);
+          //todo:a->o->b
+          if (crossMessage.getType() == Type.TIME_OUT || crossMessage.getType() == Type.ACK
+              || crossContract.getType() == CrossDataType.CONTRACT
+              || (crossMessage.getType() == Type.DATA
+              && crossMessage.getTimeOutBlockHeight() > chainBaseManager.getHeadBlockNum())) {
+            trx = new TransactionCapsule(crossMessage.getTransaction());
+            trx.setSource(false);
+            trx.setType(crossMessage.getType());
+          } else {
+            logger.warn("{} cross tx time out, timeOutHeight:{}, now block height:{}",
+                crossMessage.getType(), crossMessage.getTimeOutBlockHeight(),
+                chainBaseManager.getHeadBlockNum());
+            continue;
+          }
+        } catch (Exception e) {
+          logger.error("", e);
           continue;
         }
       } else {
@@ -1415,7 +1499,7 @@ public class Manager {
       // apply transaction
       try (ISession tmpSession = revokingStore.buildSession()) {
         accountStateCallBack.preExeTrans();
-        TransactionInfo result = processTransaction(trx, blockCapsule);
+        TransactionInfo result = preProcessTransaction(trx, blockCapsule);
         accountStateCallBack.exeTransFinish();
         tmpSession.merge();
         if (trx.isSource()) {
@@ -1438,7 +1522,8 @@ public class Manager {
     session.reset();
 
     logger.info(
-        "Generate block success, pendingCount: {}, repushCount: {}, postponedCount: {}, crossCount: {}",
+        "Generate block success, pendingCount: {},"
+            + " repushCount: {}, postponedCount: {}, crossCount: {}",
         pendingTransactions.size(), rePushTransactions.size(), postponedTrxCount,
         crossTxQueue.size());
 
@@ -1476,8 +1561,8 @@ public class Manager {
         return true;
       }
       default:
+        return false;
     }
-    return false;
   }
 
   public TransactionHistoryStore getTransactionHistoryStore() {
@@ -1507,6 +1592,9 @@ public class Manager {
     if (!consensus.validBlock(block)) {
       throw new ValidateScheduleException("validateWitnessSchedule error");
     }
+
+    chainBaseManager.getBalanceTraceStore().initCurrentBlockBalanceTrace(block);
+
     //reset BlockEnergyUsage
     chainBaseManager.getDynamicPropertiesStore().saveBlockEnergyUsage(0);
     //parallel check sign
@@ -1581,17 +1669,29 @@ public class Manager {
     updateTransHashCache(block);
     updateRecentBlock(block);
     updateDynamicProperties(block);
+
+    chainBaseManager.getBalanceTraceStore().resetCurrentBlockTrace();
   }
 
   private void processTx(BlockCapsule block, TransactionRetCapsule transationRetCapsule,
       TransactionCapsule transactionCapsule)
-      throws ValidateSignatureException, ContractValidateException, ContractExeException, AccountResourceInsufficientException, TransactionExpirationException, TooBigTransactionException, TooBigTransactionResultException, DupTransactionException, TaposException, ReceiptCheckErrException, VMIllegalException {
+      throws ValidateSignatureException,
+      ContractValidateException,
+      ContractExeException,
+      AccountResourceInsufficientException,
+      TransactionExpirationException,
+      TooBigTransactionException,
+      TooBigTransactionResultException,
+      DupTransactionException,
+      TaposException,
+      ReceiptCheckErrException,
+      VMIllegalException {
     transactionCapsule.setBlockNum(block.getNum());
     if (block.generatedByMyself) {
       transactionCapsule.setVerified(true);
     }
     accountStateCallBack.preExeTrans();
-    TransactionInfo result = processTransaction(transactionCapsule, block);
+    TransactionInfo result = preProcessTransaction(transactionCapsule, block);
     accountStateCallBack.exeTransFinish();
     if (Objects.nonNull(result)) {
       transationRetCapsule.addTransactionInfo(result);
@@ -1599,49 +1699,182 @@ public class Manager {
     pbftBlockListener.addCallBackTx(chainBaseManager, block.getNum(), transactionCapsule);
   }
 
+  private TransactionInfo preProcessTransaction(
+          TransactionCapsule transactionCapsule, BlockCapsule block) throws
+          ValidateSignatureException, ContractValidateException,
+          TooBigTransactionException, TransactionExpirationException,
+          TooBigTransactionResultException, ReceiptCheckErrException,
+          TaposException, VMIllegalException, DupTransactionException,
+          ContractExeException, AccountResourceInsufficientException {
+    TransactionInfo result = processTransaction(transactionCapsule, block, true);
+    Contract contract = transactionCapsule.getInstance().getRawData().getContract(0);
+    if (contract.getType() == ContractType.CrossContract) {
+      try {
+        CrossContract crossContract = contract.getParameter().unpack(CrossContract.class);
+        if (crossContract.getType() == CrossDataType.CONTRACT) {
+          BalanceContract.ContractTrigger contractTrigger = BalanceContract.ContractTrigger
+              .parseFrom(crossContract.getData());
+          if (transactionCapsule.isSource() && !Arrays
+              .equals(contractTrigger.getSource().getOwnerAddress().toByteArray(),
+                  TransactionCapsule.getOwner(contract))) {
+            throw new ValidateSignatureException(
+                "trigger source owner address not equals sign address");
+          }
+
+          TriggerSmartContract source = contractTrigger.getSource();
+          TriggerSmartContract dest = contractTrigger.getDest();
+          // check source and dest contract data
+          if (!Arrays.equals(source.getData().toByteArray(), dest.getData().toByteArray())) {
+            throw new CrossContractConstructException("dest data must equal with source data");
+          }
+
+          // todo: check proxy account
+
+          TransactionCapsule crossTriggerTx;
+          if (transactionCapsule.isSource()) {
+            crossTriggerTx = new TransactionCapsule(source, ContractType.TriggerSmartContract);
+          } else {
+            crossTriggerTx = new TransactionCapsule(dest, ContractType.TriggerSmartContract);
+            // set the fee payer when transaction is dest
+            crossTriggerTx.setCallerAddress(TransactionCapsule.getOwner(contract));
+          }
+
+          /*TransactionCapsule crossTriggerTx;
+          if (transactionCapsule.isSource()) {
+            crossTriggerTx = new TransactionCapsule(contractTrigger.getSource(),
+                ContractType.TriggerSmartContract);
+          } else {
+            TriggerSmartContract source = contractTrigger.getSource();
+            crossContract.getOwnerChainId();
+            TriggerSmartContract dest = contractTrigger.getDest();
+            //todo: setOwnerAddress and data
+            byte[] destData = buildDestData(source, dest, transactionCapsule.getContractResult());
+            dest = dest.toBuilder().setData(ByteString.copyFrom(destData))//.setOwnerAddress()
+                .build();
+            crossTriggerTx = new TransactionCapsule(dest,
+                ContractType.TriggerSmartContract);
+            // set the fee payer when transaction is dest
+            crossTriggerTx.setCallerAddress(TransactionCapsule.getOwner(contract));
+          }*/
+          setTransaction(crossTriggerTx, transactionCapsule);
+          TransactionInfo middleResult = processTransaction(crossTriggerTx, block, false);
+          //
+          result = middleResult.toBuilder().setId(result.getId()).build();
+          if (crossTriggerTx.getContractResult() != null) {
+            transactionCapsule.setResultCode(crossTriggerTx.getContractResult());
+          }
+        }
+      } catch (Exception e) {
+        logger.error("", e);
+        throw new ContractValidateException("invalid protobuf");
+      }
+    }
+    return result;
+  }
+
+  private byte[] buildDestData(TriggerSmartContract source, TriggerSmartContract dest,
+      Result.contractResult sourceResult) {
+    /*byte[] sourceData = source.getData().toByteArray();
+    byte[] destData = dest.getData().toByteArray();
+    byte[] result = new byte[destData.length + sourceData.length + 64 + 64];
+    //set contract data
+    System.arraycopy(sourceData, 0, destData, 0, sourceData.length);
+    byte[] contractAddress = source.getContractAddress().toByteArray();
+    System.arraycopy(contractAddress, 0, destData, sourceData.length, contractAddress.length);
+    byte[] txResult = Hex.decode(sourceResult.name());
+    System.arraycopy(txResult, 0, destData, sourceData.length + contractAddress.length,
+        txResult.length);
+    return result;*/
+    return source.getData().toByteArray();
+  }
+
+  private void setTransaction(TransactionCapsule trx, TransactionCapsule crossTrx) {
+    raw raw = crossTrx.getInstance().getRawData();
+    trx.setReference(raw.getRefBlockHash(), raw.getRefBlockBytes());
+    trx.setExpiration(crossTrx.getExpiration());
+    trx.setTimestamp();
+    trx.setVerified(true);
+    trx.setSource(crossTrx.isSource());
+    if (crossTrx.getContractResult() != null) {
+      trx.setResultCode(crossTrx.getContractResult());
+    }
+  }
+
   private void payReward(BlockCapsule block) {
     WitnessCapsule witnessCapsule =
         chainBaseManager.getWitnessStore().getUnchecked(block.getInstance().getBlockHeader()
             .getRawData().getWitnessAddress().toByteArray());
     if (getDynamicPropertiesStore().allowChangeDelegation()) {
-      delegationService.payBlockReward(witnessCapsule.getAddress().toByteArray(),
+      mortgageService.payBlockReward(witnessCapsule.getAddress().toByteArray(),
           getDynamicPropertiesStore().getWitnessPayPerBlock());
-      delegationService.payStandbyWitness();
+      mortgageService.payStandbyWitness();
+
+      if (chainBaseManager.getDynamicPropertiesStore().supportTransactionFeePool()) {
+        long transactionFeeReward = Math
+            .floorDiv(chainBaseManager.getDynamicPropertiesStore().getTransactionFeePool(),
+                Constant.TRANSACTION_FEE_POOL_PERIOD);
+        mortgageService.payTransactionFeeReward(witnessCapsule.getAddress().toByteArray(),
+            transactionFeeReward);
+        chainBaseManager.getDynamicPropertiesStore().saveTransactionFeePool(
+            chainBaseManager.getDynamicPropertiesStore().getTransactionFeePool()
+                - transactionFeeReward);
+      }
     } else {
       byte[] witness = block.getWitnessAddress().toByteArray();
       AccountCapsule account = getAccountStore().get(witness);
       account.setAllowance(account.getAllowance()
           + chainBaseManager.getDynamicPropertiesStore().getWitnessPayPerBlock());
+
+      if (chainBaseManager.getDynamicPropertiesStore().supportTransactionFeePool()) {
+        long transactionFeeReward = Math
+            .floorDiv(chainBaseManager.getDynamicPropertiesStore().getTransactionFeePool(),
+                Constant.TRANSACTION_FEE_POOL_PERIOD);
+        account.setAllowance(account.getAllowance() + transactionFeeReward);
+        chainBaseManager.getDynamicPropertiesStore().saveTransactionFeePool(
+            chainBaseManager.getDynamicPropertiesStore().getTransactionFeePool()
+                - transactionFeeReward);
+      }
+
       getAccountStore().put(account.createDbKey(), account);
     }
   }
 
-  private void postSolitityLogContractTrigger(Long blockNum, Long lastSolidityNum) {
+  private void postSolidityLogContractTrigger(Long blockNum, Long lastSolidityNum) {
     if (blockNum > lastSolidityNum) {
       return;
     }
-    for (ContractLogTrigger logTriggerCapsule : Args
-        .getSolidityContractLogTriggerMap().get(blockNum)) {
-      if (chainBaseManager.getTransactionStore().getUnchecked(ByteArray.fromHexString(
-          logTriggerCapsule.getTransactionId())) != null) {
-        logTriggerCapsule.setTriggerName(Trigger.SOLIDITYLOG_TRIGGER_NAME);
-        EventPluginLoader.getInstance().postSolidityLogTrigger(logTriggerCapsule);
+    BlockingQueue contractLogTriggersQueue = Args.getSolidityContractLogTriggerMap()
+        .get(blockNum);
+    while (!contractLogTriggersQueue.isEmpty()) {
+      ContractLogTrigger triggerCapsule = (ContractLogTrigger) contractLogTriggersQueue.poll();
+      if (triggerCapsule == null) {
+        break;
+      }
+      if (containsTransaction(ByteArray.fromHexString(triggerCapsule
+          .getTransactionId()))) {
+        triggerCapsule.setTriggerName(Trigger.SOLIDITYLOG_TRIGGER_NAME);
+        EventPluginLoader.getInstance().postSolidityLogTrigger(triggerCapsule);
       }
     }
     Args.getSolidityContractLogTriggerMap().remove(blockNum);
   }
 
-  private void postSolitityEventContractTrigger(Long blockNum, Long lastSolidityNum) {
+  private void postSolidityEventContractTrigger(Long blockNum, Long lastSolidityNum) {
     if (blockNum > lastSolidityNum) {
       return;
     }
-    for (ContractEventTrigger eventTriggerCapsule : Args
-        .getSolidityContractEventTriggerMap().get(blockNum)) {
-      if (chainBaseManager.getTransactionStore()
-          .getUnchecked(ByteArray.fromHexString(eventTriggerCapsule
-              .getTransactionId())) != null) {
-        eventTriggerCapsule.setTriggerName(Trigger.SOLIDITYEVENT_TRIGGER_NAME);
-        EventPluginLoader.getInstance().postSolidityEventTrigger(eventTriggerCapsule);
+    BlockingQueue contractEventTriggersQueue = Args.getSolidityContractEventTriggerMap()
+        .get(blockNum);
+    while (!contractEventTriggersQueue.isEmpty()) {
+      ContractEventTrigger triggerCapsule = (ContractEventTrigger) contractEventTriggersQueue
+          .poll();
+      if (triggerCapsule == null) {
+        break;
+      }
+      if (containsTransaction(ByteArray.fromHexString(triggerCapsule
+          .getTransactionId()))) {
+        triggerCapsule.setTriggerName(Trigger.SOLIDITYEVENT_TRIGGER_NAME);
+        EventPluginLoader.getInstance().postSolidityEventTrigger(triggerCapsule);
       }
     }
     Args.getSolidityContractEventTriggerMap().remove(blockNum);
@@ -1660,6 +1893,10 @@ public class Manager {
   }
 
   public void updateFork(BlockCapsule block) {
+    int blockVersion = block.getInstance().getBlockHeader().getRawData().getVersion();
+    if (blockVersion > ChainConstant.BLOCK_VERSION) {
+      logger.warn("newer block version found: " + blockVersion + ", YOU MUST UPGRADE java-tron!");
+    }
     chainBaseManager
         .getForkController().update(block);
   }
@@ -1815,12 +2052,12 @@ public class Manager {
     }
     if (eventPluginLoaded && EventPluginLoader.getInstance().isSolidityLogTriggerEnable()) {
       for (Long i : Args.getSolidityContractLogTriggerMap().keySet()) {
-        postSolitityLogContractTrigger(i, latestSolidifiedBlockNumber);
+        postSolidityLogContractTrigger(i, latestSolidifiedBlockNumber);
       }
     }
     if (eventPluginLoaded && EventPluginLoader.getInstance().isSolidityEventTriggerEnable()) {
       for (Long i : Args.getSolidityContractEventTriggerMap().keySet()) {
-        postSolitityEventContractTrigger(i, latestSolidifiedBlockNumber);
+        postSolidityEventContractTrigger(i, latestSolidifiedBlockNumber);
       }
     }
   }
@@ -1852,11 +2089,11 @@ public class Manager {
     }
   }
 
-  private void reorgContractTrigger() {
+  private void reOrgContractTrigger() {
     if (eventPluginLoaded
         && (EventPluginLoader.getInstance().isContractEventTriggerEnable()
         || EventPluginLoader.getInstance().isContractLogTriggerEnable())) {
-      logger.info("switchfork occurred, post reorgContractTrigger");
+      logger.info("switchfork occurred, post reOrgContractTrigger");
       try {
         BlockCapsule oldHeadBlock = chainBaseManager.getBlockById(
             getDynamicPropertiesStore().getLatestBlockHeaderHash());
@@ -1926,5 +2163,50 @@ public class Manager {
 
   public boolean addCrossTx(CrossMessage crossMessage) {
     return crossTxQueue.add(crossMessage);
+  }
+
+  private void initCrossChainWhiteList() {
+    CrossRevokingStore crossRevokingStore = chainBaseManager.getCrossRevokingStore();
+    CommonDataBase commonDataBase = chainBaseManager.getCommonDataBase();
+    if (crossRevokingStore.getParaChainList(0).isEmpty()
+            || Args.getInstance().isCrossChainWhiteListRefresh()) {
+      chainBaseManager.getDynamicPropertiesStore().saveAuctionConfig(181617162101023L);
+      List<String> chainIds = Args.getInstance().getCrossChainWhiteList().stream()
+              .map(entry -> ByteArray.toStr(entry.getChainId().toByteArray()))
+              .collect(Collectors.toList());
+
+      crossRevokingStore.updateParaChains(0, chainIds);
+      crossRevokingStore.updateParaChainsHistory(chainIds);
+
+      Args.getInstance().getCrossChainWhiteList().forEach(crossChainInfo -> {
+        String chainId = ByteArray.toStr(crossChainInfo.getChainId().toByteArray());
+        try {
+          if (crossChainInfo.getBeginSyncHeight() - 1 <= commonDataBase
+                  .getLatestHeaderBlockNum(chainId)) {
+            return;
+          }
+          commonDataBase.saveLatestHeaderBlockNum(chainId, crossChainInfo.getBeginSyncHeight() - 1);
+          commonDataBase.saveLatestBlockHeaderHash(chainId,
+                  ByteArray.toHexString(crossChainInfo.getParentBlockHash().toByteArray()));
+          commonDataBase.saveChainMaintenanceTimeInterval(chainId,
+                  crossChainInfo.getMaintenanceTimeInterval());
+          long round = crossChainInfo.getBlockTime() / crossChainInfo.getMaintenanceTimeInterval();
+          long epoch = (round + 1) * crossChainInfo.getMaintenanceTimeInterval();
+          if (crossChainInfo.getBlockTime() % crossChainInfo.getMaintenanceTimeInterval() == 0) {
+            epoch = epoch - crossChainInfo.getMaintenanceTimeInterval();
+            epoch = epoch < 0 ? 0 : epoch;
+          }
+          Protocol.SRL.Builder srlBuilder = Protocol.SRL.newBuilder();
+          srlBuilder.addAllSrAddress(crossChainInfo.getSrListList());
+          Protocol.PBFTMessage.Raw pbftMsgRaw = Protocol.PBFTMessage.Raw.newBuilder()
+                  .setData(srlBuilder.build().toByteString()).setEpoch(epoch).build();
+          Protocol.PBFTCommitResult.Builder builder = Protocol.PBFTCommitResult.newBuilder();
+          builder.setData(pbftMsgRaw.toByteString());
+          commonDataBase.saveSRL(chainId, epoch, builder.build());
+        } catch (Exception e) {
+          logger.error("chain {} get the info fail!", chainId, e);
+        }
+      });
+    }
   }
 }

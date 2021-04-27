@@ -17,6 +17,7 @@ import org.tron.core.Constant;
 import org.tron.core.config.args.Overlay;
 import org.tron.core.config.args.SeedNode;
 import org.tron.core.config.args.Storage;
+import org.tron.protos.contract.BalanceContract.CrossChainInfo;
 
 public class CommonParameter {
 
@@ -140,6 +141,9 @@ public class CommonParameter {
   @Getter
   @Setter
   public boolean nodeDiscoveryPublicHomeNode;
+  @Getter
+  @Setter
+  public long nodeDiscoveryPingTimeout;
   @Getter
   @Setter
   public long nodeP2pPingInterval;
@@ -302,6 +306,14 @@ public class CommonParameter {
   @Setter
   public long allowMarketTransaction; //committee parameter
 
+  @Getter
+  @Setter
+  public long allowTransactionFeePool;
+
+  @Getter
+  @Setter
+  public long allowBlackHoleOptimization;
+
   // @Getter
   // @Setter
   // public long allowShieldedTransaction; //committee parameter
@@ -380,16 +392,37 @@ public class CommonParameter {
   public boolean solidityNodeHttpEnable = true;
   @Getter
   @Setter
-  public boolean nodeHttpStatisticsSRRewardEnable = false;
-  @Getter
-  @Setter
   public int maxTransactionPendingSize;
   @Getter
   @Setter
   public long pendingTransactionTimeout;
   @Getter
   @Setter
-  public boolean nodeMetricsEnable = true;
+  public boolean nodeMetricsEnable = false;
+
+  @Getter
+  @Setter
+  public boolean metricsStorageEnable = false;
+
+  @Getter
+  @Setter
+  public String influxDbIp;
+
+  @Getter
+  @Setter
+  public int influxDbPort;
+
+  @Getter
+  @Setter
+  public String influxDbDatabase;
+
+  @Getter
+  @Setter
+  public int metricsReportInterval = 10;
+
+  @Getter
+  @Setter
+  public int maxActiveWitnessNum;
 
   @Getter
   @Setter
@@ -412,6 +445,18 @@ public class CommonParameter {
   @Setter
   public long allowShieldedTRC20Transaction;
 
+  @Getter/**/
+  @Setter
+  public long allowTvmIstanbul;
+
+  @Getter
+  @Setter
+  public long allowTvmStake;
+
+  @Getter
+  @Setter
+  public long allowTvmAssetIssue;
+
   @Getter
   @Setter
   public boolean openHistoryQueryWhenLiteFN = false;
@@ -419,6 +464,11 @@ public class CommonParameter {
   @Getter
   @Setter
   public boolean isLiteFullNode = false;
+
+  @Getter
+  @Setter
+  @Parameter(names = {"--history-balance-lookup"})
+  public boolean historyBalanceLookup = false;
 
   @Getter
   @Setter
@@ -431,6 +481,18 @@ public class CommonParameter {
   @Getter
   @Setter
   public long crossChain;
+
+  @Getter
+  @Setter
+  public boolean shouldRegister;
+
+  @Getter
+  @Setter
+  public boolean crossChainWhiteListRefresh;
+
+  @Getter
+  @Setter
+  public List<CrossChainInfo> crossChainWhiteList;
 
   private static double calcMaxTimeRatio() {
     //return max(2.0, min(5.0, 5 * 4.0 / max(Runtime.getRuntime().availableProcessors(), 1)));

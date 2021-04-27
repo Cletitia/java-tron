@@ -343,9 +343,10 @@ message Transaction {
       MarketSellAssetContract = 52;
       MarketCancelOrderContract = 53;
       CrossContract = 54;
-      RegisterCrossContract = 55;
-      UpdateCrossContract = 56;
-      VoteCrossContract = 57;
+      RegisterCrossChainContract = 55;
+      UpdateCrossChainContract = 56;
+      VoteCrossChainContract = 57;
+      UnvoteCrossChainContract = 58;
     }
     ContractType type = 1;
     google.protobuf.Any parameter = 2;
@@ -450,6 +451,7 @@ message TransactionInfo {
 
   bytes orderId = 25;
   repeated MarketOrderDetail orderDetails = 26;
+  int64 packingFee = 27;
 
 }
 
@@ -900,6 +902,7 @@ message BlockHeaderRequestMessage {
   bytes chainId = 1;
   int64 blockHeight = 2;
   int64 length = 3;
+  int64 latestMaintenanceTime = 4;
 }
 
 message BlockHeaderInventory {

@@ -10,6 +10,9 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.collections4.CollectionUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
+import org.tron.common.parameter.CommonParameter;
+import org.tron.common.utils.AuctionConfigParser;
+import org.tron.common.utils.ByteArray;
 import org.tron.common.utils.ForkController;
 import org.tron.common.utils.Sha256Hash;
 import org.tron.common.zksnark.MerkleContainer;
@@ -25,7 +28,6 @@ import org.tron.core.db.CommonDataBase;
 import org.tron.core.db.CommonStore;
 import org.tron.core.db.CrossRevokingStore;
 import org.tron.core.db.CrossStore;
-import org.tron.core.db.DelegationService;
 import org.tron.core.db.KhaosDatabase;
 import org.tron.core.db.PbftSignDataStore;
 import org.tron.core.db.RecentBlockStore;
@@ -34,11 +36,14 @@ import org.tron.core.db2.core.ITronChainBase;
 import org.tron.core.exception.BadItemException;
 import org.tron.core.exception.HeaderNotFound;
 import org.tron.core.exception.ItemNotFoundException;
+import org.tron.core.service.MortgageService;
 import org.tron.core.store.AccountIdIndexStore;
 import org.tron.core.store.AccountIndexStore;
 import org.tron.core.store.AccountStore;
+import org.tron.core.store.AccountTraceStore;
 import org.tron.core.store.AssetIssueStore;
 import org.tron.core.store.AssetIssueV2Store;
+import org.tron.core.store.BalanceTraceStore;
 import org.tron.core.store.CodeStore;
 import org.tron.core.store.ContractStore;
 import org.tron.core.store.DelegatedResourceAccountIndexStore;
@@ -62,6 +67,7 @@ import org.tron.core.store.VotesStore;
 import org.tron.core.store.WitnessScheduleStore;
 import org.tron.core.store.WitnessStore;
 import org.tron.core.store.ZKProofStore;
+import org.tron.protos.contract.CrossChain;
 
 @Slf4j(topic = "DB")
 @Component
@@ -154,7 +160,7 @@ public class ChainBaseManager {
 
   @Getter
   @Setter
-  private DelegationService delegationService;
+  private MortgageService mortgageService;
 
   @Autowired
   @Getter
@@ -192,6 +198,14 @@ public class ChainBaseManager {
   @Autowired
   @Getter
   private PbftSignDataStore pbftSignDataStore;
+
+  @Autowired
+  @Getter
+  private BalanceTraceStore balanceTraceStore;
+
+  @Autowired
+  @Getter
+  private AccountTraceStore accountTraceStore;
 
   @Getter
   private ForkController forkController = ForkController.instance();
@@ -261,6 +275,8 @@ public class ChainBaseManager {
     closeOneStore(crossRevokingStore);
     closeOneStore(blockHeaderIndexStore);
     closeOneStore(blockHeaderStore);
+    closeOneStore(balanceTraceStore);
+    closeOneStore(accountTraceStore);
   }
 
   // for test only
@@ -383,6 +399,32 @@ public class ChainBaseManager {
   public BlockCapsule getBlockByNum(final long num) throws
       ItemNotFoundException, BadItemException {
     return getBlockById(getBlockIdByNum(num));
+  }
+
+  public boolean chainIsSelected(ByteString chainId) {
+    if (!CommonParameter.getInstance().isShouldRegister()) {
+      return true;
+    }
+
+    boolean result = false;
+    List<Long> auctionRoundList = getDynamicPropertiesStore().listAuctionConfigs();
+    for (Long value : auctionRoundList) {
+      CrossChain.AuctionRoundContract roundInfo = AuctionConfigParser.parseAuctionConfig(value);
+      if (roundInfo == null || roundInfo.getRound() < 0) {
+        continue;
+      }
+      List<String> paraList = getCrossRevokingStore().getParaChainList(roundInfo.getRound());
+      String chainIdStr = ByteArray.toHexString(chainId.toByteArray());
+      if (paraList.contains(chainIdStr)) {
+        result = true;
+        break;
+      }
+    }
+
+    if (!result) {
+      logger.warn("chain {} don't be select", ByteArray.toHexString(chainId.toByteArray()));
+    }
+    return result;
   }
 
 }

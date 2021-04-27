@@ -3,19 +3,7 @@ package org.tron.core.vm;
 import static org.tron.common.crypto.Hash.sha3;
 import static org.tron.common.utils.ByteUtil.EMPTY_BYTE_ARRAY;
 import static org.tron.core.db.TransactionTrace.convertToTronAddress;
-import static org.tron.core.vm.OpCode.CALL;
-import static org.tron.core.vm.OpCode.CALLTOKEN;
-import static org.tron.core.vm.OpCode.CALLTOKENID;
-import static org.tron.core.vm.OpCode.CALLTOKENVALUE;
-import static org.tron.core.vm.OpCode.CREATE2;
-import static org.tron.core.vm.OpCode.EXTCODEHASH;
-import static org.tron.core.vm.OpCode.ISCONTRACT;
-import static org.tron.core.vm.OpCode.PUSH1;
-import static org.tron.core.vm.OpCode.REVERT;
-import static org.tron.core.vm.OpCode.SAR;
-import static org.tron.core.vm.OpCode.SHL;
-import static org.tron.core.vm.OpCode.SHR;
-import static org.tron.core.vm.OpCode.TOKENBALANCE;
+import static org.tron.core.vm.OpCode.*;
 
 import java.math.BigInteger;
 import java.util.ArrayList;
@@ -25,6 +13,7 @@ import org.spongycastle.util.encoders.Hex;
 import org.springframework.util.StringUtils;
 import org.tron.common.runtime.vm.DataWord;
 import org.tron.common.runtime.vm.LogInfo;
+import org.tron.common.utils.ByteArray;
 import org.tron.core.vm.config.VMConfig;
 import org.tron.core.vm.program.Program;
 import org.tron.core.vm.program.Program.JVMStackOverFlowException;
@@ -103,24 +92,18 @@ public class VM {
 
     try {
       OpCode op = OpCode.code(program.getCurrentOp());
-      if (op == null) {
+      if (op == null
+          || (!VMConfig.allowTvmTransferTrc10()
+              && (op == CALLTOKEN || op == TOKENBALANCE || op == CALLTOKENVALUE
+          || op == CALLTOKENID))
+          || (!VMConfig.allowTvmConstantinople()
+              && (op == SHL || op == SHR || op == SAR || op == CREATE2 || op == EXTCODEHASH))
+          || (!VMConfig.allowTvmSolidity059() && op == ISCONTRACT)
+          || (!VMConfig.allowTvmIstanbul() && (op == SELFBALANCE || op == CHAINID))
+          ) {
         throw Program.Exception.invalidOpCode(program.getCurrentOp());
       }
 
-      // hard fork for 3.2
-      if (!VMConfig.allowTvmTransferTrc10()
-          && (op == CALLTOKEN || op == TOKENBALANCE || op == CALLTOKENVALUE || op == CALLTOKENID)) {
-        throw Program.Exception.invalidOpCode(program.getCurrentOp());
-      }
-
-      if (!VMConfig.allowTvmConstantinople()
-          && (op == SHL || op == SHR || op == SAR || op == CREATE2 || op == EXTCODEHASH)) {
-        throw Program.Exception.invalidOpCode(program.getCurrentOp());
-      }
-
-      if (!VMConfig.allowTvmSolidity059() && op == ISCONTRACT) {
-        throw Program.Exception.invalidOpCode(program.getCurrentOp());
-      }
       program.setLastOp(op.val());
       program.verifyStackSize(op.require());
       program.verifyStackOverflow(op.require(), op.ret()); //Check not exceeding stack limits
@@ -1030,6 +1013,18 @@ public class VM {
           program.step();
         }
         break;
+        case CHAINID: {
+          DataWord chainId = program.getChainId();
+          program.stackPush(chainId);
+          program.step();
+          break;
+        }
+        case SELFBALANCE: {
+          DataWord selfBalance = program.getBalance(program.getContractAddress());
+          program.stackPush(selfBalance);
+          program.step();
+          break;
+        }
         case POP: {
           program.stackPop();
           program.step();
